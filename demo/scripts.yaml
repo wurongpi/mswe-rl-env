@@ -1,0 +1,46 @@
+# Scripted replies for the offline demo (mswe_rl.fake_server).
+# `match` is a substring of the task instruction; replies are used in order.
+# Edits use python one-liners so they behave the same on macOS and Linux.
+- match: "add(a, b)"
+  replies:
+    - |
+      THOUGHT: Let me look at calc.py first.
+
+      ```mswea_bash_command
+      cat calc.py
+      ```
+    - |
+      THOUGHT: add uses subtraction. Replace `a - b` with `a + b` and check.
+
+      ```mswea_bash_command
+      python3 -c "import pathlib; p=pathlib.Path('calc.py'); p.write_text(p.read_text().replace('a - b', 'a + b'))" && python3 -c "from calc import add; print(add(2, 3))"
+      ```
+- match: "fizzbuzz(n)"
+  replies:
+    - |
+      THOUGHT: The loop probably stops one short. Let me check.
+
+      ```mswea_bash_command
+      grep -n "range" fizzbuzz.py
+      ```
+    - |
+      THOUGHT: range(1, n) excludes n; it should be range(1, n + 1).
+
+      ```mswea_bash_command
+      python3 -c "import pathlib; p=pathlib.Path('fizzbuzz.py'); p.write_text(p.read_text().replace('range(1, n)', 'range(1, n + 1)'))" && python3 -c "from fizzbuzz import fizzbuzz; print(fizzbuzz(5))"
+      ```
+- match: "word_count(text)"
+  replies:
+    - |
+      THOUGHT: Let me read the implementation.
+
+      ```mswea_bash_command
+      cat text_utils.py
+      ```
+    - |
+      THOUGHT: I will strip the text first. (This fix is incomplete on purpose:
+      it still splits on single spaces, so the hidden tests fail -> reward 0.)
+
+      ```mswea_bash_command
+      python3 -c "import pathlib; p=pathlib.Path('text_utils.py'); p.write_text(p.read_text().replace('text.split(\" \")', 'text.strip().split(\" \")'))" && python3 -c "from text_utils import word_count; print(word_count('a  b\tc'))"
+      ```

@@ -5,8 +5,9 @@ tokenizer and a ChatML-style template, so prefix consistency behaves like a real
 chat model: re-sending the same history yields the same token prefix.
 
 Replies come from a YAML script: for each task, a substring of its instruction
-and the ordered list of assistant replies. The step is the number of assistant
-messages already in the request.
+and the ordered list of assistant replies. The next reply follows the last
+scripted reply found in the history, so it stays on script even when the agent
+truncates its history.
 
     python -m mswe_rl.fake_server --script demo/scripts.yaml --port 8000
 """
@@ -47,8 +48,14 @@ def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette
     async def chat(request: Request):
         body = await request.json()
         messages = [{"role": m["role"], "content": m.get("content") or ""} for m in body["messages"]]
-        step = sum(1 for m in messages if m["role"] == "assistant")
         replies = pick_script(messages)
+        last = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), None)
+        if last is None:
+            step = 0
+        elif last in replies:
+            step = replies.index(last) + 1
+        else:
+            step = sum(1 for m in messages if m["role"] == "assistant")
         reply = replies[step] if step < len(replies) else SUBMIT_REPLY
         prompt_ids = tok.apply_chat_template(messages, add_generation_prompt=True)
         comp_ids = tok.encode(reply) + [IM_END]
