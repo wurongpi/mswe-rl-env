@@ -68,7 +68,7 @@ docker ps            # 能正常输出就说明可用
 cd ~/mswe-rl-env
 git submodule update --init      # 拉取 third_party/mini-swe-agent（固定在 v2.4.6）
 uv sync                          # 创建 .venv，以可编辑方式安装 mini-swe-agent 子模块
-uv run pytest                    # 12 个测试；OrbStack 运行时 docker 后端测试也会执行
+uv run pytest                    # 15 个测试；OrbStack 运行时 docker 后端测试也会执行
 ```
 
 ### 2. 离线演示（不需要模型）
@@ -84,15 +84,38 @@ BACKEND=docker bash demo/run_demo.sh     # 换成 Docker 沙箱（需要 orb sta
 
 模型权重统一放在 Hugging Face 缓存（默认 `~/.cache/huggingface`，可以用 `HF_HOME` 改位置）。推理服务按仓库 ID 加载，可以用 `--revision` 锁定版本，`--offline` 只读本地缓存、不联网。
 
+推理服务有两个引擎，返回格式完全相同，代理和 rollout 不用改：
+
+| 引擎 | 适用 | 模型 |
+|---|---|---|
+| `--engine mlx`（**M1 推荐**） | Apple Silicon，速度快，支持 4/8-bit 量化 | `mlx-community/*`，如 `mlx-community/Qwen3-1.7B-4bit` |
+| `--engine hf`（默认） | MPS / CPU / CUDA，与 PyTorch 训练侧权重一致 | 原始 HF 仓库，如 `Qwen/Qwen3-1.7B` |
+
+**MLX（推荐）**
+
+```bash
+uv sync --extra mlx
+export HF_ENDPOINT=https://hf-mirror.com                # 国内网络建议设置镜像
+uv run hf download mlx-community/Qwen3-1.7B-4bit
+uv run mswe-infer --engine mlx --model mlx-community/Qwen3-1.7B-4bit --offline --port 8000
+```
+
+> 注意：用 4-bit MLX 模型做 rollout、再用 bf16 的 PyTorch 模型训练，两边的 logprob 会有明显差距（训推不一致）。只验证链路没问题；反过来也可以专门拿它做实验，度量量化带来的不一致有多大。
+
+**HF transformers**
+
 ```bash
 uv sync --extra infer                                   # 安装 torch / transformers / huggingface_hub
 
 export HF_ENDPOINT=https://hf-mirror.com                # 国内网络建议设置镜像
 uv run hf download Qwen/Qwen3-1.7B                      # 下载一次，之后都走缓存
 
-# 终端 1：推理服务（MPS），返回 token ids 和 logprobs
 uv run mswe-infer --model Qwen/Qwen3-1.7B --offline --port 8000
+```
 
+**之后的步骤两种引擎相同**（推理服务在 8000 端口运行）：
+
+```bash
 # 终端 2：录制代理
 uv run mswe-proxy --upstream http://127.0.0.1:8000 --port 8100
 
@@ -104,8 +127,8 @@ uv run mswe-inspect runs/qwen/samples.jsonl --tokenizer Qwen/Qwen3-1.7B
 
 **M1 上的预期**：
 
-- 内存：Qwen3-1.7B 用默认的 fp32 约占 7 GB。8 GB 内存的机器请改用 `Qwen/Qwen3-0.6B`，或者加 `--dtype bfloat16`。
-- 速度：HF transformers 在 MPS 上逐 token 生成，单步回复可能要几秒到几十秒。`--concurrency` 设为 1 即可，推理服务内部本来就是串行的。
+- 内存：MLX 的 Qwen3-1.7B-4bit 只需 1 GB 左右；HF 引擎用默认 fp32 约占 7 GB，8 GB 内存的机器请改用 `Qwen/Qwen3-0.6B` 或加 `--dtype bfloat16`。
+- 速度：MLX 明显快于 HF transformers + MPS。`--concurrency` 设为 1 即可，推理服务内部本来就是串行的。
 - 效果：小模型解题率低、奖励大多为 0 是正常的。这里验证的是**链路正确性**（token 对齐、mask、切段、故障隔离），不是模型能力。
 - 想看前缀断开的真实案例，可以给 `mswe-infer` 加 `--enable-thinking`：Qwen3 的 chat template 会在后续轮次里删掉旧的 `<think>` 块，于是前缀断开，统计里的 `prefix breaks` 会变成非零。
 
@@ -160,7 +183,7 @@ tasks/<name>/
 ```
 mswe_rl/
   proxy.py           OpenAI 兼容的录制代理（按 episode 分 session）
-  infer_server.py    本地推理服务：HF 缓存加载，MPS/CPU，返回 token ids + logprobs
+  infer_server.py    本地推理服务：HF 缓存加载，MLX 或 transformers 引擎，返回 token ids + logprobs
   agent_runner.py    mini-swe-agent v2 适配器（SandboxEnv / ProxyTextModel）
   sandbox.py         DockerSandbox / LocalSandbox，测试注入，故障分类
   episode.py         单个 episode：沙箱 → agent → 测试 → 组装
@@ -190,5 +213,5 @@ uv run python demo/render_gif.py --cmd "uv run mswe-rollout --agent mini --model
 
 - [ ] slime（`custom_generate_func`）和 verl（AgentLoop）的样本适配器
 - [ ] 支持 Harbor / Terminal-Bench 格式的任务
-- [ ] 训推不一致的度量：用训练侧重新计算 logprob，与 rollout logprob 对比
+- [ ] 训推不一致的度量：用训练侧重新计算 logprob，与 rollout logprob 对比（例如 MLX 4-bit vs HF bf16）
 - [ ] 支持 tool calling 版本的 mini-swe-agent（`LitellmModel`）
