@@ -1,0 +1,4 @@
+image: python:3.11-slim
+instruction: |
+  fizzbuzz(n) in fizzbuzz.py should return a list for 1..n inclusive, but the last
+  number is missing (fizzbuzz(5) has only 4 items). Fix it.

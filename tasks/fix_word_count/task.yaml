@@ -1,0 +1,4 @@
+image: python:3.11-slim
+instruction: |
+  word_count(text) in text_utils.py should count words separated by any whitespace,
+  but word_count("a  b\tc") returns 4 instead of 3. Fix it.

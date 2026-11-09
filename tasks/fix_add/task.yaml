@@ -1,0 +1,4 @@
+image: python:3.11-slim
+instruction: |
+  `add(a, b)` in calc.py returns the wrong result: add(2, 3) gives -1.
+  Fix the bug so that add returns the sum of its arguments.
