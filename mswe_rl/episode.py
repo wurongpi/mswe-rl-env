@@ -28,6 +28,16 @@ def _call_mini(task_text, sandbox, api_base, *, model_name, kw):
     return run_mini_swe_agent(task_text, sandbox, api_base, model_name, **kw)
 
 
+def simple_agent_fn(model_name: str, **kw) -> AgentFn:
+    from .simple_agent import run_simple_agent
+
+    return partial(_call_simple, run=run_simple_agent, model_name=model_name, kw=kw)
+
+
+def _call_simple(task_text, sandbox, api_base, *, run, model_name, kw):
+    return run(task_text, sandbox, api_base, model_name, **kw)
+
+
 def fetch_calls(proxy_url: str, sid: str) -> list[LLMCall]:
     r = requests.get(f"{proxy_url}/sessions/{sid}", timeout=30)
     r.raise_for_status()
@@ -49,6 +59,9 @@ def run_episode(task: Task, proxy_url: str, agent_fn: AgentFn, backend: str = "d
             res.agent_exit = agent_fn(task.instruction, sandbox, f"{proxy_url}/s/{sid}/v1")
         except EnvError:
             raise
+        except requests.ConnectionError as e:
+            # proxy / inference server down: infrastructure, not the policy
+            raise EnvError(f"model endpoint unreachable: {e}") from e
         except Exception as e:
             # Agent-side crash (e.g. unparseable output with a strict harness):
             # the episode still ends and gets graded on the repo state.

@@ -1,9 +1,9 @@
-"""A ~60-line bash-only agent with the same action format as mini-swe-agent.
+"""A ~60-line bash-only agent with the same action format as mini-swe-agent's text-based mode.
 
 Used by the test suite and the offline demo (no mini-swe-agent install needed),
 and as a readable reference for what the harness does each step:
 
-    model reply -> first ```bash block -> run in sandbox -> observation as next user turn
+    model reply -> first ```mswea_bash_command block -> run in sandbox -> observation as next user turn
 
 `max_history` keeps only the system prompt, the task and the last N messages.
 That is exactly the kind of history truncation that breaks the token prefix
@@ -20,11 +20,11 @@ SUBMIT = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 SYSTEM = (
     "You are a software engineer working in a Linux shell. Reply with a short THOUGHT and "
-    "exactly one ```bash code block containing one command. When the task is done, run "
+    "exactly one ```mswea_bash_command code block containing one command. When the task is done, run "
     f"`echo {SUBMIT}`."
 )
 
-BASH_RE = re.compile(r"```bash\s*\n(.*?)\n```", re.S)
+BASH_RE = re.compile(r"```mswea_bash_command\s*\n(.*?)\n```", re.S)
 
 
 def run_simple_agent(task_text: str, sandbox, api_base: str, model_name: str = "local",
@@ -49,11 +49,11 @@ def run_simple_agent(task_text: str, sandbox, api_base: str, model_name: str = "
 
         m = BASH_RE.search(reply)
         if not m:
-            tail.append({"role": "user", "content": "Format error: reply with exactly one ```bash block."})
+            tail.append({"role": "user", "content": "Format error: reply with exactly one ```mswea_bash_command block."})
             continue
         cmd = m.group(1).strip()
         out = sandbox.execute(cmd)
-        if SUBMIT in out["output"]:
+        if out["output"].lstrip().startswith(SUBMIT):
             return "Submitted"
         tail.append({
             "role": "user",
