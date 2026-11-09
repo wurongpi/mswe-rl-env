@@ -10,8 +10,13 @@ Logprobs are taken from the raw logits (before temperature / top-p), which is
 what a trainer recomputes at temperature 1. Comparing them with the trainer's
 recomputation is how you measure train-inference mismatch.
 
+Models are managed by Hugging Face: weights live in the HF cache
+(~/.cache/huggingface, or $HF_HOME), are fetched with `hf download`, and are
+loaded by repo id + revision. `--offline` refuses any network access.
+
 Run:
-    python -m mswe_rl.infer_server --model Qwen/Qwen3-1.7B --port 8000
+    uv run hf download Qwen/Qwen3-1.7B            # once (HF_ENDPOINT=https://hf-mirror.com in mainland China)
+    uv run python -m mswe_rl.infer_server --model Qwen/Qwen3-1.7B --port 8000
 """
 
 from __future__ import annotations
@@ -20,12 +25,27 @@ import argparse
 import threading
 import time
 import uuid
+from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+
+
+def resolve_model(repo_id: str, revision: str | None = None, offline: bool = False) -> str:
+    """Return a local snapshot path for a HF repo id (or pass a local dir through)."""
+    if Path(repo_id).is_dir():
+        return repo_id
+    from huggingface_hub import snapshot_download
+
+    try:
+        return snapshot_download(repo_id, revision=revision, local_files_only=offline,
+                                 allow_patterns=["*.json", "*.safetensors", "*.txt", "*.model", "*.jinja"])
+    except Exception as e:
+        hint = f"run `uv run hf download {repo_id}` first" if offline else "check network / HF_ENDPOINT"
+        raise SystemExit(f"cannot resolve model {repo_id!r} ({e}); {hint}") from e
 
 
 def pick_device(name: str):
@@ -41,7 +61,8 @@ def pick_device(name: str):
 
 
 class Engine:
-    def __init__(self, model_id: str, device: str = "auto", dtype: str = "auto", enable_thinking: bool = False):
+    def __init__(self, model_id: str, device: str = "auto", dtype: str = "auto", enable_thinking: bool = False,
+                 revision: str | None = None, offline: bool = False):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -53,8 +74,9 @@ class Engine:
         else:
             torch_dtype = getattr(torch, dtype)
         self.model_id = model_id
-        self.tok = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype).to(self.device)
+        self.local_path = resolve_model(model_id, revision, offline)
+        self.tok = AutoTokenizer.from_pretrained(self.local_path)
+        self.model = AutoModelForCausalLM.from_pretrained(self.local_path, torch_dtype=torch_dtype).to(self.device)
         self.model.eval()
         self.enable_thinking = enable_thinking
         self.lock = threading.Lock()  # one generation at a time on a laptop
@@ -158,7 +180,9 @@ def build_app(engine) -> Starlette:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--model", default="Qwen/Qwen3-1.7B")
+    p.add_argument("--model", default="Qwen/Qwen3-1.7B", help="HF repo id (or a local directory)")
+    p.add_argument("--revision", default=None, help="HF branch / tag / commit to pin")
+    p.add_argument("--offline", action="store_true", help="only use the local HF cache")
     p.add_argument("--device", default="auto")
     p.add_argument("--dtype", default="auto", help="auto | float32 | bfloat16 | float16")
     p.add_argument("--enable-thinking", action="store_true",
@@ -169,8 +193,8 @@ def main():
     a = p.parse_args()
     import uvicorn
 
-    engine = Engine(a.model, a.device, a.dtype, a.enable_thinking)
-    print(f"loaded {a.model} on {engine.device}")
+    engine = Engine(a.model, a.device, a.dtype, a.enable_thinking, a.revision, a.offline)
+    print(f"loaded {a.model} from {engine.local_path} on {engine.device}")
     uvicorn.run(build_app(engine), host=a.host, port=a.port, log_level="warning")
 
 
