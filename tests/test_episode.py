@@ -41,6 +41,15 @@ def test_unreachable_model_is_env_error(tasks):
     assert res.status == "env_error" and res.reward is None and samples == []
 
 
+def test_agent_crash_is_env_error_not_zero_reward(proxy_url, tasks):
+    def broken_agent(task_text, sandbox, api_base):
+        raise ImportError("No module named 'minisweagent'")
+
+    res, samples = run_episode(tasks["fix_add"], proxy_url, broken_agent, backend="local")
+    assert res.status == "env_error" and res.reward is None and samples == []
+    assert "agent crashed" in res.error
+
+
 def _docker_ok():
     return shutil.which("docker") and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
 

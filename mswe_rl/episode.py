@@ -63,9 +63,10 @@ def run_episode(task: Task, proxy_url: str, agent_fn: AgentFn, backend: str = "d
             # proxy / inference server down: infrastructure, not the policy
             raise EnvError(f"model endpoint unreachable: {e}") from e
         except Exception as e:
-            # Agent-side crash (e.g. unparseable output with a strict harness):
-            # the episode still ends and gets graded on the repo state.
-            res.agent_exit = f"AgentException: {e!r}"[:300]
+            # mini-swe-agent already turns policy mistakes (format errors, step
+            # limits) into a normal exit. Anything that escapes is a harness bug
+            # or broken setup: never grade it as a policy failure.
+            raise EnvError(f"agent crashed: {e!r}"[:300]) from e
         passed, log = sandbox.run_tests(task.tests_dir)
         res.status, res.reward = ("pass", 1.0) if passed else ("fail", 0.0)
     except EnvError as e:
