@@ -1,6 +1,6 @@
 [project]
 name = "mswe-rl-env"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn mini-swe-agent into an RL rollout environment: token-level trajectories, sandboxed verifiable rewards"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,6 +30,7 @@ mlx = [
 dev = [
     "pytest>=8.0",
     "pillow>=10.0",
+    "ruff==0.16.9",
 ]
 
 [project.scripts]
@@ -37,6 +38,10 @@ mswe-infer = "mswe_rl.infer_server:main"
 mswe-proxy = "mswe_rl.proxy:main"
 mswe-rollout = "mswe_rl.rollout:main"
 mswe-inspect = "mswe_rl.inspect_samples:main"
+mswe-verify-logprobs = "mswe_rl.verify_logprobs:main"
+mswe-check-tasks = "mswe_rl.check_tasks:main"
+mswe-make-humanevalfix = "mswe_rl.humanevalfix:main"
+mswe-report = "mswe_rl.report:main"
 
 [tool.uv.sources]
 mini-swe-agent = { path = "third_party/mini-swe-agent", editable = true }
@@ -50,3 +55,12 @@ packages = ["mswe_rl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+extend-exclude = ["third_party", "tasks"]  # tasks/ holds intentionally buggy code
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B905"]  # E501: the formatter owns line length
