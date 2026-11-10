@@ -6,10 +6,19 @@
 
 ![offline demo](docs/demo.gif)
 
-> 上面的 GIF 是 `bash demo/run_demo.sh` 的真实输出（agent 是子模块里真实的 mini-swe-agent v2.4.6，模型是脚本化的假模型，沙箱为 `local` 后端）。三段分别是：
-> 1. **批量 rollout**：3 个任务 × 每组 2 个 episode。`fix_word_count` 的脚本故意给了一个不完整的修复，隐藏测试判为 0 分。
-> 2. **历史截断实验**：agent 只保留最近 2 条消息，token 前缀在第 3 次调用时断开，轨迹被自动切成 2 段，两段共享同一个 episode 的奖励。
-> 3. **训练器视角**：绿色是策略采样的 token（`loss_mask=1`，带 rollout logprob），灰色是 prompt 和工具输出（`loss_mask=0`）。
+> 上面的 GIF 是 `bash demo/run_demo.sh` 的真实输出（agent 是子模块里真实的 mini-swe-agent v2.4.6，**模型是脚本化的假模型**，沙箱为 `local` 后端）。六段分别是：
+> 1. **任务集自检**（不需要模型）：未修改的仓库必须测试失败，参考解必须测试通过。
+> 2. **批量 rollout**：3 个任务 × 每组 2 个 episode。`fix_word_count` 的脚本故意给了一个不完整的修复，隐藏测试判为 0 分。
+> 3. **历史截断实验**：agent 只保留最近 2 条消息，token 前缀在第 3 次调用时断开，轨迹被自动切成 2 段，两段共享同一个 episode 的奖励。
+> 4. **logprob 校验**：对录下来的 token 序列重新做一次前向，逐 token 与 rollout 记录的 logprob 对比。
+> 5. **rollout 报告**：通过率，以及有多少组同时包含成功和失败（GRPO 只能从这样的组里学到东西）。
+> 6. **训练器视角**：绿色是策略采样的 token（`loss_mask=1`，带 rollout logprob），灰色是 prompt 和工具输出（`loss_mask=0`）。
+
+## 当前状态
+
+- **已验证**：33 个测试中的 32 个（单元测试 + 用真实 mini-swe-agent 跑的端到端测试，剩下 1 个是 Docker 后端测试）和离线演示，模型均为脚本化假模型。
+- **尚未验证**：真实模型上的运行（HF 和 MLX 两个引擎）、Docker 后端、HumanEvalFix 数据集的下载与转换。下文相关命令都按设计写好，但还没有实测结果，欢迎按步骤跑通后补充数字。
+- 已知局限见文末。
 
 ---
 
@@ -41,7 +50,7 @@ flowchart LR
     T --> O[(samples.jsonl)]
 ```
 
-mini-swe-agent 只通过两个适配器接入（见 `mswe_rl/agent_runner.py`）：
+mini-swe-agent 只通过两个适配器接入（见 `mswe_rl/agents/mini_swe.py`）：
 
 - **`SandboxEnv`**：实现 mini-swe-agent v2 的 Environment 协议，背后可以是 Docker 或本地目录。
 - **`ProxyTextModel`**：实现 Model 协议，直接复用 mini-swe-agent 自己的文本动作解析器和观察模板（即 `mini_textbased.yaml`）。不依赖 tool calling，任何小模型都能用。也可以用 `--model-backend litellm` 切换到官方的 `LitellmTextbasedModel`。
@@ -68,7 +77,7 @@ docker ps            # 能正常输出就说明可用
 cd ~/mswe-rl-env
 git submodule update --init      # 拉取 third_party/mini-swe-agent（固定在 v2.4.6）
 uv sync                          # 创建 .venv，以可编辑方式安装 mini-swe-agent 子模块
-uv run pytest                    # 15 个测试；OrbStack 运行时 docker 后端测试也会执行
+uv run pytest                    # 33 个测试；OrbStack 运行时 docker 后端测试也会执行
 ```
 
 ### 2. 离线演示（不需要模型）
@@ -125,6 +134,35 @@ uv run mswe-rollout --agent mini --model Qwen/Qwen3-1.7B --backend docker \
 uv run mswe-inspect runs/qwen/samples.jsonl --tokenizer Qwen/Qwen3-1.7B
 ```
 
+### 4. 校验采到的数据
+
+```bash
+# 用 rollout 时的同一个模型重算：差值应接近 0，说明 token、分段、mask、logprob 对齐都正确
+uv run mswe-verify-logprobs runs/qwen/samples.jsonl --engine mlx --model mlx-community/Qwen3-1.7B-4bit
+
+# 换成训练侧会用的权重重算：差值就是训推不一致的大小（这里是量化带来的）
+uv run mswe-verify-logprobs runs/qwen/samples.jsonl --engine hf --model Qwen/Qwen3-1.7B
+```
+
+每个样本只做一次完整前向，比较 `loss_mask=1` 位置上的 `log p(token | 前缀)`。有 token 超过容差（默认 0.05）时退出码为 1，并指出差值最大的 token 位置。
+
+### 5. 在 HumanEvalFix 上评估环境
+
+[HumanEvalFix](https://huggingface.co/datasets/bigcode/humanevalpack)（MIT）是 HumanEval 的修 bug 版本：164 个 Python 函数，每个带一处人工植入的 bug、正确解法和单元测试。单文件、bug 只有一两行，适合小模型。
+
+```bash
+uv run mswe-make-humanevalfix --out tasks/humanevalfix       # 从 HF 下载并转换（也可用 --input 指定本地 jsonl）
+uv run mswe-check-tasks tasks/humanevalfix                   # 164 题都应"原始版本失败、参考解通过"
+
+uv run mswe-rollout --tasks tasks/humanevalfix --agent mini --model mlx-community/Qwen3-1.7B-4bit \
+    --backend docker --group-size 4 --concurrency 1 --max-tokens 512 --out runs/hef/samples.jsonl
+uv run mswe-report runs/hef/samples.jsonl --tasks tasks/humanevalfix --json runs/hef/report.json
+```
+
+`mswe-report` 给出通过率、环境错误率、前缀断裂比例、每个样本的 token 数，以及按 bug 类型的通过率。最关键的一项是 **mixed groups**：同一题的几次尝试里既有成功也有失败的组数。全对或全错的组优势为 0，对 GRPO 没有任何学习信号，所以这个数字衡量任务集的难度和模型是否匹配。太难可以换更大的模型；太简单可以用 `--hint none` 去掉 docstring。
+
+> HumanEval 流传很广，模型很可能见过原题，这里的通过率只用来衡量环境的奖励信号，不能当作模型能力的评测成绩。
+
 **M1 上的预期**：
 
 - 内存：MLX 的 Qwen3-1.7B-4bit 只需 1 GB 左右；HF 引擎用默认 fp32 约占 7 GB，8 GB 内存的机器请改用 `Qwen/Qwen3-0.6B` 或加 `--dtype bfloat16`。
@@ -132,7 +170,7 @@ uv run mswe-inspect runs/qwen/samples.jsonl --tokenizer Qwen/Qwen3-1.7B
 - 效果：小模型解题率低、奖励大多为 0 是正常的。这里验证的是**链路正确性**（token 对齐、mask、切段、故障隔离），不是模型能力。
 - 想看前缀断开的真实案例，可以给 `mswe-infer` 加 `--enable-thinking`：Qwen3 的 chat template 会在后续轮次里删掉旧的 `<think>` 块，于是前缀断开，统计里的 `prefix breaks` 会变成非零。
 
-### 4. 换成 vLLM / SGLang（有 GPU 时）
+### 6. 换成 vLLM / SGLang（有 GPU 时）
 
 代理只要求上游返回 `prompt_token_ids`、`choices[0].token_ids` 和 `choices[0].logprobs`。在新版 vLLM 上，可以让代理给每个请求注入相应参数：
 
@@ -172,30 +210,62 @@ uv run mswe-proxy --upstream http://gpu-box:8000 \
 ## 自定义任务
 
 ```
-tasks/<name>/
-  task.yaml        instruction（任务描述）、image（默认 python:3.11-slim）
+tasks/<task_set>/<name>/
+  task.yaml        instruction（任务描述）、image（默认 python:3.11-slim）、metadata（可选）
   repo/            拷进沙箱 /workspace 的代码
   tests/test.sh    agent 结束后运行；退出码 0 = 通过。可以读取 $WORKSPACE、$TESTS_DIR
+  solution/        可选的参考解，覆盖到工作区后应通过测试；agent 看不到，供 mswe-check-tasks 使用
 ```
+
+新增任务后先运行 `uv run mswe-check-tasks tasks/<task_set>`，确认奖励判定是对的。
+
+## 命令一览
+
+| 命令 | 作用 |
+|---|---|
+| `mswe-infer` | 本地推理服务（`--engine hf` 或 `mlx`），返回 token ids 和 logprobs |
+| `mswe-proxy` | 录制代理 |
+| `mswe-rollout` | 批量采集 rollout，输出 `samples.jsonl` |
+| `mswe-inspect` | 按 loss mask 着色查看样本 |
+| `mswe-verify-logprobs` | 重算 logprob，校验采到的数据 |
+| `mswe-report` | 汇总 rollout：通过率、奖励信号、前缀断裂 |
+| `mswe-check-tasks` | 不用模型，校验任务集的奖励判定 |
+| `mswe-make-humanevalfix` | 把 HumanEvalFix 转成任务集 |
 
 ## 项目结构
 
 ```
 mswe_rl/
-  proxy.py           OpenAI 兼容的录制代理（按 episode 分 session）
-  infer_server.py    本地推理服务：HF 缓存加载，MLX 或 transformers 引擎，返回 token ids + logprobs
-  agent_runner.py    mini-swe-agent v2 适配器（SandboxEnv / ProxyTextModel）
-  sandbox.py         DockerSandbox / LocalSandbox，测试注入，故障分类
-  episode.py         单个 episode：沙箱 → agent → 测试 → 组装
-  trajectory.py      前缀校验、切段、loss mask、样本格式
-  rollout.py         批量 rollout 命令行（GRPO 分组、并发、统计）
-  inspect_samples.py 按 loss mask 着色展示样本
-  simple_agent.py    约 60 行的参考 agent，支持历史截断（用于截断实验）
-  fake_server.py     脚本化假模型 + 字节级 ChatML 分词器（测试和演示用）
-tasks/               3 个示例修 bug 任务
-demo/                演示脚本、假模型脚本、GIF 渲染器
-tests/               单元测试 + 端到端测试（真实 mini-swe-agent）
+  proxy.py            OpenAI 兼容的录制代理（按 episode 分 session）
+  infer_server.py     本地推理服务：HF 缓存加载，MLX 或 transformers 引擎
+  sandbox.py          Sandbox 协议，DockerSandbox / LocalSandbox，测试注入，故障分类
+  tasks.py            任务格式与加载
+  episode.py          单个 episode：沙箱 → agent → 测试 → 组装
+  trajectory.py       前缀校验、切段、loss mask、样本格式
+  rollout.py          批量 rollout（GRPO 分组、并发、统计）
+  inspect_samples.py  按 loss mask 着色展示样本
+  verify_logprobs.py  用一次前向重算 logprob 并与 rollout 对比
+  report.py           rollout 结果汇总
+  check_tasks.py      任务集自检（原始版本失败、参考解通过）
+  humanevalfix.py     HumanEvalFix → 任务集
+  agents/
+    mini_swe.py       mini-swe-agent v2 适配器（SandboxEnv / ProxyTextModel）
+    simple.py         约 60 行的参考 agent，支持历史截断
+  testing/
+    fake_server.py    脚本化假模型（bigram logprob，可被精确重算）
+    toy_tokenizer.py  字节级 ChatML 分词器
+tasks/toy/            3 个示例修 bug 任务（含参考解）
+demo/                 演示脚本、假模型脚本、GIF 渲染器
+tests/                单元测试 + 端到端测试（真实 mini-swe-agent）
 third_party/mini-swe-agent   git 子模块，固定在 v2.4.6
+```
+
+## 开发
+
+```bash
+uv run pytest                 # 测试
+uv run ruff check .           # lint
+uv run ruff format .          # 格式化
 ```
 
 ## 录制你自己的 GIF
@@ -209,9 +279,18 @@ uv run python demo/render_gif.py --cmd "uv run mswe-rollout --agent mini --model
     --log runs/qwen.log --out docs/qwen.gif --title "mswe-rl-env — Qwen3-1.7B on M1"
 ```
 
+## 已知局限
+
+- **logprob 的口径**：记录的是温度为 1、未做 top-p 截断的原始分布下的 logprob。采样时如果用了其他温度或 top-p，它不等于行为策略的概率，不能直接当作 π_old 计算重要性采样比率。
+- **测试在 agent 用过的容器里运行**：测试文件是事后注入的，但 agent 仍可能通过修改解释器环境或留下后台进程来影响测试结果。
+- **命令超时后容器内的进程不会被终止**，只是 `docker exec` 客户端退出；容器也没有限制 CPU 和进程数。
+- **切段后的样本权重**：一个 episode 被切成多段时每段都带同一个奖励，训练侧需要自行决定如何归一化。
+- **推理服务只用于验证链路**：串行、无批处理、多轮之间不复用 KV cache。
+- 只支持文本动作，不支持 tool calling 和流式输出。
+
 ## 后续计划
 
+- [ ] 在真实模型上跑通并补充 HumanEvalFix 的实测数字
+- [ ] 记录采样参数与行为策略 logprob；测试改到全新容器中运行；容器内超时终止
 - [ ] slime（`custom_generate_func`）和 verl（AgentLoop）的样本适配器
-- [ ] 支持 Harbor / Terminal-Bench 格式的任务
-- [ ] 训推不一致的度量：用训练侧重新计算 logprob，与 rollout logprob 对比（例如 MLX 4-bit vs HF bf16）
 - [ ] 支持 tool calling 版本的 mini-swe-agent（`LitellmModel`）
