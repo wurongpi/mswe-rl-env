@@ -30,9 +30,22 @@ from .toy_tokenizer import IM_END, ToyTokenizer
 SUBMIT_REPLY = "Done.\n\n```mswea_bash_command\necho COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n```"
 
 
-def _fake_logprob(i: int, tid: int) -> float:
-    h = hashlib.md5(f"{i}:{tid}".encode()).digest()[0]
+def bigram_logprob(prev: int, tid: int) -> float:
+    """The fake model's log p(tid | prev): a deterministic bigram "model".
+
+    Depending only on the previous token makes it reproducible from the token
+    sequence alone, so `BigramScorer` can recompute it exactly. That gives
+    `mswe-verify-logprobs` a ground truth to be tested against.
+    """
+    h = hashlib.md5(f"{prev}:{tid}".encode()).digest()[0]
     return -round(0.01 + h / 255 * 2.0, 4)
+
+
+class BigramScorer:
+    """Scores a token sequence under the fake model (see verify_logprobs.Scorer)."""
+
+    def score(self, tokens: list[int]) -> list[float]:
+        return [0.0] + [bigram_logprob(a, b) for a, b in zip(tokens, tokens[1:])]
 
 
 def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette:
@@ -59,7 +72,8 @@ def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette
         reply = replies[step] if step < len(replies) else SUBMIT_REPLY
         prompt_ids = tok.apply_chat_template(messages, add_generation_prompt=True)
         comp_ids = tok.encode(reply) + [IM_END]
-        lps = [_fake_logprob(i, t) for i, t in enumerate(comp_ids)]
+        seq = prompt_ids[-1:] + comp_ids
+        lps = [bigram_logprob(a, b) for a, b in zip(seq, seq[1:])]
         return JSONResponse({
             "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
             "object": "chat.completion",
