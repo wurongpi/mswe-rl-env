@@ -7,8 +7,8 @@ environment record token-level data without knowing how the agent works inside.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from typing import Callable
 
 from ..sandbox import Sandbox
 

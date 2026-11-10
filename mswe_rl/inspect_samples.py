@@ -51,14 +51,20 @@ def main(argv=None):
     n_tok, n_train = len(s["tokens"]), sum(s["loss_mask"])
     trained = [lp for lp, m in zip(s["rollout_logprobs"], s["loss_mask"]) if m]
     mean_lp = sum(trained) / len(trained) if trained else 0.0
-    head = (f"episode {s['episode_id']}  segment {s['segment_index'] + 1}/{s['num_segments']}  "
-            f"reward={s['reward']}  tokens={n_tok}  trained={n_train} ({n_train / n_tok:.0%})  "
-            f"mean logprob={mean_lp:.3f}")
+    head = (
+        f"episode {s['episode_id']}  segment {s['segment_index'] + 1}/{s['num_segments']}  "
+        f"reward={s['reward']}  tokens={n_tok}  trained={n_train} ({n_train / n_tok:.0%})  "
+        f"mean logprob={mean_lp:.3f}"
+    )
     print(f"{BOLD}{head}{END}" if color else head)
     for st, en, m in runs(s["loss_mask"]):
         text = decode(s["tokens"][st:en])
         if len(text) > a.max_chars:
-            text = text[: a.max_chars // 2] + f" …[{len(text) - a.max_chars} chars]… " + text[-a.max_chars // 2:]
+            text = (
+                text[: a.max_chars // 2]
+                + f" …[{len(text) - a.max_chars} chars]… "
+                + text[-a.max_chars // 2 :]
+            )
         label = f"[mask={m} · {en - st} tok]"
         if color:
             print(f"{GREEN if m else GRAY}{label}{END}")

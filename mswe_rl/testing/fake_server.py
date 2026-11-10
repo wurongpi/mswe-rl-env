@@ -74,22 +74,31 @@ def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette
         comp_ids = tok.encode(reply) + [IM_END]
         seq = prompt_ids[-1:] + comp_ids
         lps = [bigram_logprob(a, b) for a, b in zip(seq, seq[1:])]
-        return JSONResponse({
-            "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": body.get("model", "scripted"),
-            "prompt_token_ids": prompt_ids,
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": reply},
-                "finish_reason": "stop",
-                "token_ids": comp_ids,
-                "logprobs": {"content": [{"token": str(t), "logprob": lp} for t, lp in zip(comp_ids, lps)]},
-            }],
-            "usage": {"prompt_tokens": len(prompt_ids), "completion_tokens": len(comp_ids),
-                      "total_tokens": len(prompt_ids) + len(comp_ids)},
-        })
+        return JSONResponse(
+            {
+                "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": body.get("model", "scripted"),
+                "prompt_token_ids": prompt_ids,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": reply},
+                        "finish_reason": "stop",
+                        "token_ids": comp_ids,
+                        "logprobs": {
+                            "content": [{"token": str(t), "logprob": lp} for t, lp in zip(comp_ids, lps)]
+                        },
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": len(prompt_ids),
+                    "completion_tokens": len(comp_ids),
+                    "total_tokens": len(prompt_ids) + len(comp_ids),
+                },
+            }
+        )
 
     return Starlette(routes=[Route("/v1/chat/completions", chat, methods=["POST"])])
 

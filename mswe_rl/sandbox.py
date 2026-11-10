@@ -64,8 +64,14 @@ def _coerce_command(command) -> str:
 
 
 class DockerSandbox:
-    def __init__(self, image: str, repo_dir: Path, workdir: str = "/workspace",
-                 default_timeout: int = 60, docker: str = "docker"):
+    def __init__(
+        self,
+        image: str,
+        repo_dir: Path,
+        workdir: str = "/workspace",
+        default_timeout: int = 60,
+        docker: str = "docker",
+    ):
         self.image = image
         self.repo_dir = Path(repo_dir)
         self.workdir = workdir
@@ -86,8 +92,25 @@ class DockerSandbox:
         return r
 
     def start(self):
-        self._run(["run", "-d", "--rm", "--name", self.name, "-w", self.workdir,
-                   "--network", "none", "--memory", "2g", self.image, "sleep", "infinity"], timeout=300)
+        self._run(
+            [
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                self.name,
+                "-w",
+                self.workdir,
+                "--network",
+                "none",
+                "--memory",
+                "2g",
+                self.image,
+                "sleep",
+                "infinity",
+            ],
+            timeout=300,
+        )
         self.started = True
         self._run(["exec", self.name, "mkdir", "-p", self.workdir])
         self._run(["cp", f"{self.repo_dir}/.", f"{self.name}:{self.workdir}"])
@@ -99,7 +122,9 @@ class DockerSandbox:
         try:
             r = subprocess.run(
                 [self.docker, "exec", "-w", cwd or self.workdir, self.name, "bash", "-lc", command],
-                capture_output=True, text=True, timeout=timeout,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired:
             # A slow command is the policy's problem: report it as an observation.
@@ -119,9 +144,20 @@ class DockerSandbox:
         self._run(["cp", f"{Path(tests_dir)}/.", f"{self.name}:/tests"])
         try:
             r = subprocess.run(
-                [self.docker, "exec", "-e", f"WORKSPACE={self.workdir}", "-e", "TESTS_DIR=/tests",
-                 self.name, "bash", "/tests/test.sh"],
-                capture_output=True, text=True, timeout=timeout,
+                [
+                    self.docker,
+                    "exec",
+                    "-e",
+                    f"WORKSPACE={self.workdir}",
+                    "-e",
+                    "TESTS_DIR=/tests",
+                    self.name,
+                    "bash",
+                    "/tests/test.sh",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
             )
         except subprocess.TimeoutExpired as e:
             raise EnvError("test run timed out") from e
@@ -154,8 +190,13 @@ class LocalSandbox:
         command = _coerce_command(command)
         timeout = timeout or self.default_timeout
         try:
-            r = subprocess.run(["bash", "-c", command], cwd=cwd or self.workdir,
-                               capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(
+                ["bash", "-c", command],
+                cwd=cwd or self.workdir,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired:
             return {"output": f"Command timed out after {timeout}s", "returncode": 124}
         return {"output": r.stdout + r.stderr, "returncode": r.returncode}
@@ -174,8 +215,9 @@ class LocalSandbox:
         shutil.copytree(tests_dir, dst, dirs_exist_ok=True)
         env = {**os.environ, "WORKSPACE": self.workdir, "TESTS_DIR": str(dst)}
         try:
-            r = subprocess.run(["bash", str(dst / "test.sh")], capture_output=True, text=True,
-                               timeout=timeout, env=env)
+            r = subprocess.run(
+                ["bash", str(dst / "test.sh")], capture_output=True, text=True, timeout=timeout, env=env
+            )
         except subprocess.TimeoutExpired as e:
             raise EnvError("test run timed out") from e
         return r.returncode == 0, (r.stdout + r.stderr)[-2000:]

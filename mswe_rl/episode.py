@@ -14,6 +14,7 @@ from .schema import EpisodeResult, LLMCall
 from .tasks import Task
 from .trajectory import assemble_segments, to_samples
 
+
 def fetch_calls(proxy_url: str, sid: str) -> list[LLMCall]:
     r = requests.get(f"{proxy_url}/sessions/{sid}", timeout=30)
     r.raise_for_status()
@@ -22,8 +23,9 @@ def fetch_calls(proxy_url: str, sid: str) -> list[LLMCall]:
     return calls
 
 
-def run_episode(task: Task, proxy_url: str, agent_fn: AgentFn, backend: str = "docker",
-                sandbox_kwargs: dict | None = None) -> tuple[EpisodeResult, list[dict]]:
+def run_episode(
+    task: Task, proxy_url: str, agent_fn: AgentFn, backend: str = "docker", sandbox_kwargs: dict | None = None
+) -> tuple[EpisodeResult, list[dict]]:
     proxy_url = proxy_url.rstrip("/")
     sid = f"{task.name}-{uuid.uuid4().hex[:8]}"
     t0 = time.time()

@@ -33,8 +33,12 @@ def main(argv=None):
     p.add_argument("--proxy", default="http://127.0.0.1:8100")
     p.add_argument("--agent", choices=["mini", "simple"], default="mini")
     p.add_argument("--model", default="Qwen/Qwen3-1.7B")
-    p.add_argument("--model-backend", choices=["proxy", "litellm"], default="proxy",
-                   help="mini only: plain HTTP model or mini-swe-agent's LitellmTextbasedModel")
+    p.add_argument(
+        "--model-backend",
+        choices=["proxy", "litellm"],
+        default="proxy",
+        help="mini only: plain HTTP model or mini-swe-agent's LitellmTextbasedModel",
+    )
     p.add_argument("--backend", choices=["docker", "local"], default="docker")
     p.add_argument("--group-size", type=int, default=2, help="episodes per task (GRPO group)")
     p.add_argument("--concurrency", type=int, default=2)
@@ -60,8 +64,13 @@ def main(argv=None):
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ep_path = out.with_suffix(out.suffix + ".episodes.jsonl")
-    print(style("bold", f"▶ {len(jobs)} episodes = {len(tasks)} tasks × group {a.group_size}, "
-                     f"agent={a.agent}, backend={a.backend}, concurrency={a.concurrency}"))
+    print(
+        style(
+            "bold",
+            f"▶ {len(jobs)} episodes = {len(tasks)} tasks × group {a.group_size}, "
+            f"agent={a.agent}, backend={a.backend}, concurrency={a.concurrency}",
+        )
+    )
 
     t0 = time.time()
     results, n_samples = [], 0
@@ -77,20 +86,26 @@ def main(argv=None):
             reward = "-" if res.reward is None else f"{res.reward:.0f}"
             tag = style(_STATUS_COLOR[res.status], f"{res.status:<9}")
             extra = f"  {style('dim', res.error[:80])}" if res.error else ""
-            print(f"  {tag} {res.task:<16} reward={reward}  calls={res.num_calls:<2} "
-                  f"segments={res.num_segments} breaks={len(res.prefix_breaks)} "
-                  f"exit={res.agent_exit:<14} {res.duration_s:5.1f}s{extra}")
+            print(
+                f"  {tag} {res.task:<16} reward={reward}  calls={res.num_calls:<2} "
+                f"segments={res.num_segments} breaks={len(res.prefix_breaks)} "
+                f"exit={res.agent_exit:<14} {res.duration_s:5.1f}s{extra}"
+            )
 
     dt = time.time() - t0
     n = len(results)
     cnt = {k: sum(r.status == k for r in results) for k in ("pass", "fail", "env_error")}
     valid = n - cnt["env_error"]
     print(style("bold", "\n── summary ──────────────────────────────"))
-    print(f"  pass rate        {cnt['pass']}/{valid} valid episodes"
-          + (f" ({cnt['pass'] / valid:.0%})" if valid else ""))
+    print(
+        f"  pass rate        {cnt['pass']}/{valid} valid episodes"
+        + (f" ({cnt['pass'] / valid:.0%})" if valid else "")
+    )
     print(f"  env errors       {cnt['env_error']} (excluded from training)")
-    print(f"  prefix breaks    {sum(len(r.prefix_breaks) for r in results)} "
-          f"across {sum(1 for r in results if r.prefix_breaks)} episodes")
+    print(
+        f"  prefix breaks    {sum(len(r.prefix_breaks) for r in results)} "
+        f"across {sum(1 for r in results if r.prefix_breaks)} episodes"
+    )
     print(f"  samples written  {n_samples} → {out}")
     print(f"  throughput       {n / dt * 3600:.0f} episodes/hour ({dt:.1f}s total)")
 

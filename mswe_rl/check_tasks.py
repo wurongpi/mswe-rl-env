@@ -38,6 +38,7 @@ def _graded(task: Task, backend: str, apply_solution: bool) -> bool:
     try:
         sandbox.start()
         if apply_solution:
+            assert task.solution_dir is not None
             sandbox.write_files(task.solution_dir)
         passed, _ = sandbox.run_tests(task.tests_dir)
         return passed
@@ -75,12 +76,17 @@ def main(argv=None) -> int:
     results = check_tasks(load_tasks(Path(a.tasks)), a.backend, a.concurrency)
     bad = [r for r in results if not r.ok]
     for r in bad:
-        why = r.error or ("untouched repo passes the tests" if r.buggy_fails is False
-                          else "reference solution fails the tests")
+        why = r.error or (
+            "untouched repo passes the tests"
+            if r.buggy_fails is False
+            else "reference solution fails the tests"
+        )
         print(f"  {style('red', 'BAD')}  {r.task:<28} {why}")
     n = len(results)
-    print(f"{n - len(bad)}/{n} tasks grade correctly "
-          f"(untouched repo fails, reference solution passes) on the {a.backend} backend")
+    print(
+        f"{n - len(bad)}/{n} tasks grade correctly "
+        f"(untouched repo fails, reference solution passes) on the {a.backend} backend"
+    )
     return 1 if bad else 0
 
 

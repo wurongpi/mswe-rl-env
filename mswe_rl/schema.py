@@ -23,8 +23,8 @@ class LLMCall:
     latency_s: float = 0.0
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "LLMCall":
-        return cls(**{k: d.get(k) for k in cls.__dataclass_fields__})
+    def from_dict(cls, d: dict[str, Any]) -> LLMCall:
+        return cls(**{k: d[k] for k in cls.__dataclass_fields__ if k in d})
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

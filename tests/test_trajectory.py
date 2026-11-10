@@ -3,8 +3,15 @@ from mswe_rl.trajectory import assemble_segments
 
 
 def call(i, prompt, comp, lps=True):
-    return LLMCall(session_id="s", index=i, messages=[], prompt_token_ids=prompt,
-                   completion_token_ids=comp, completion_logprobs=[-0.5] * len(comp) if lps else None, text="")
+    return LLMCall(
+        session_id="s",
+        index=i,
+        messages=[],
+        prompt_token_ids=prompt,
+        completion_token_ids=comp,
+        completion_logprobs=[-0.5] * len(comp) if lps else None,
+        text="",
+    )
 
 
 def test_consistent_prefix_is_one_segment():

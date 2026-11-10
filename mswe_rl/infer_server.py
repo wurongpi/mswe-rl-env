@@ -48,8 +48,12 @@ def resolve_model(repo_id: str, revision: str | None = None, offline: bool = Fal
     from huggingface_hub import snapshot_download
 
     try:
-        return snapshot_download(repo_id, revision=revision, local_files_only=offline,
-                                 allow_patterns=["*.json", "*.safetensors", "*.txt", "*.model", "*.jinja"])
+        return snapshot_download(
+            repo_id,
+            revision=revision,
+            local_files_only=offline,
+            allow_patterns=["*.json", "*.safetensors", "*.txt", "*.model", "*.jinja"],
+        )
     except Exception as e:
         hint = f"run `uv run hf download {repo_id}` first" if offline else "check network / HF_ENDPOINT"
         raise SystemExit(f"cannot resolve model {repo_id!r} ({e}); {hint}") from e
@@ -81,8 +85,9 @@ def normalize_messages(messages: list[dict]) -> list[dict]:
 def chat_prompt_ids(tok, body: dict, enable_thinking: bool) -> list[int]:
     """Apply the chat template once and keep the ids: they are what the model consumes."""
     tmpl_kwargs = {"enable_thinking": enable_thinking, **(body.get("chat_template_kwargs") or {})}
-    ids = tok.apply_chat_template(normalize_messages(body["messages"]), add_generation_prompt=True,
-                                  tokenize=True, **tmpl_kwargs)
+    ids = tok.apply_chat_template(
+        normalize_messages(body["messages"]), add_generation_prompt=True, tokenize=True, **tmpl_kwargs
+    )
     if not isinstance(ids, list):  # BatchEncoding in some versions
         ids = list(ids["input_ids"])
     return [int(t) for t in ids]
@@ -95,8 +100,15 @@ def sampling_params(body: dict) -> tuple[float, float, int]:
     return temperature, top_p, max_new
 
 
-def completion_response(model: str, prompt_ids: list[int], comp_ids: list[int], logprobs: list[float],
-                        text: str, finish: str, token_str) -> dict:
+def completion_response(
+    model: str,
+    prompt_ids: list[int],
+    comp_ids: list[int],
+    logprobs: list[float],
+    text: str,
+    finish: str,
+    token_str,
+) -> dict:
     """The response shape the recording proxy expects (same as recent vLLM with return_token_ids)."""
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
@@ -110,20 +122,31 @@ def completion_response(model: str, prompt_ids: list[int], comp_ids: list[int], 
                 "message": {"role": "assistant", "content": text},
                 "finish_reason": finish,
                 "token_ids": comp_ids,
-                "logprobs": {"content": [{"token": token_str(t), "logprob": lp}
-                                         for t, lp in zip(comp_ids, logprobs)]},
+                "logprobs": {
+                    "content": [{"token": token_str(t), "logprob": lp} for t, lp in zip(comp_ids, logprobs)]
+                },
             }
         ],
-        "usage": {"prompt_tokens": len(prompt_ids), "completion_tokens": len(comp_ids),
-                  "total_tokens": len(prompt_ids) + len(comp_ids)},
+        "usage": {
+            "prompt_tokens": len(prompt_ids),
+            "completion_tokens": len(comp_ids),
+            "total_tokens": len(prompt_ids) + len(comp_ids),
+        },
     }
 
 
 class HFEngine:
     """HF transformers on MPS / CPU / CUDA."""
 
-    def __init__(self, model_id: str, device: str = "auto", dtype: str = "auto", enable_thinking: bool = False,
-                 revision: str | None = None, offline: bool = False):
+    def __init__(
+        self,
+        model_id: str,
+        device: str = "auto",
+        dtype: str = "auto",
+        enable_thinking: bool = False,
+        revision: str | None = None,
+        offline: bool = False,
+    ):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -137,7 +160,9 @@ class HFEngine:
         self.model_id = model_id
         self.local_path = resolve_model(model_id, revision, offline)
         self.tok = AutoTokenizer.from_pretrained(self.local_path)
-        self.model = AutoModelForCausalLM.from_pretrained(self.local_path, torch_dtype=torch_dtype).to(self.device)
+        self.model = AutoModelForCausalLM.from_pretrained(self.local_path, torch_dtype=torch_dtype).to(
+            self.device
+        )
         self.model.eval()
         self.enable_thinking = enable_thinking
         self.lock = threading.Lock()  # one generation at a time on a laptop
@@ -159,10 +184,11 @@ class HFEngine:
         input_ids = torch.tensor([prompt_ids], device=self.device)
         with self.lock, torch.no_grad():
             out = self.model.generate(input_ids, attention_mask=torch.ones_like(input_ids), **gen_kwargs)
-        comp_ids = out.sequences[0, len(prompt_ids):].tolist()
+        comp_ids = out.sequences[0, len(prompt_ids) :].tolist()
         # logits[i] is the raw distribution that produced comp_ids[i]
-        logprobs = [torch.log_softmax(out.logits[i][0].float(), dim=-1)[tid].item()
-                    for i, tid in enumerate(comp_ids)]
+        logprobs = [
+            torch.log_softmax(out.logits[i][0].float(), dim=-1)[tid].item() for i, tid in enumerate(comp_ids)
+        ]
         # keep everything up to and including the first EOS
         eos_ids = self.model.generation_config.eos_token_id
         eos_ids = set(eos_ids if isinstance(eos_ids, list) else [eos_ids])
@@ -172,8 +198,15 @@ class HFEngine:
                 comp_ids, logprobs, finish = comp_ids[: i + 1], logprobs[: i + 1], "stop"
                 break
         text = self.tok.decode(comp_ids, skip_special_tokens=True)
-        return completion_response(body.get("model", self.model_id), prompt_ids, comp_ids, logprobs,
-                                   text, finish, self.tok.convert_ids_to_tokens)
+        return completion_response(
+            body.get("model", self.model_id),
+            prompt_ids,
+            comp_ids,
+            logprobs,
+            text,
+            finish,
+            self.tok.convert_ids_to_tokens,
+        )
 
 
 class MLXEngine:
@@ -186,8 +219,9 @@ class MLXEngine:
     collecting every yielded token gives the completion with exactly one EOS.
     """
 
-    def __init__(self, model_id: str, enable_thinking: bool = False, revision: str | None = None,
-                 offline: bool = False):
+    def __init__(
+        self, model_id: str, enable_thinking: bool = False, revision: str | None = None, offline: bool = False
+    ):
         from mlx_lm import load
 
         self.model_id = model_id
@@ -215,8 +249,15 @@ class MLXEngine:
                 if r.finish_reason:
                     finish = "stop" if r.finish_reason == "stop" else "length"
         text = self.tok.decode(comp_ids, skip_special_tokens=True)
-        return completion_response(body.get("model", self.model_id), prompt_ids, comp_ids, logprobs,
-                                   text, finish, lambda t: self.tok.convert_ids_to_tokens(t))
+        return completion_response(
+            body.get("model", self.model_id),
+            prompt_ids,
+            comp_ids,
+            logprobs,
+            text,
+            finish,
+            lambda t: self.tok.convert_ids_to_tokens(t),
+        )
 
 
 Engine = HFEngine  # backwards-compatible name
@@ -243,16 +284,23 @@ def build_app(engine) -> Starlette:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--engine", choices=["hf", "mlx"], default="hf",
-                   help="hf = transformers (MPS/CPU/CUDA); mlx = Apple MLX (use mlx-community/* weights)")
+    p.add_argument(
+        "--engine",
+        choices=["hf", "mlx"],
+        default="hf",
+        help="hf = transformers (MPS/CPU/CUDA); mlx = Apple MLX (use mlx-community/* weights)",
+    )
     p.add_argument("--model", default="Qwen/Qwen3-1.7B", help="HF repo id (or a local directory)")
     p.add_argument("--revision", default=None, help="HF branch / tag / commit to pin")
     p.add_argument("--offline", action="store_true", help="only use the local HF cache")
     p.add_argument("--device", default="auto")
     p.add_argument("--dtype", default="auto", help="auto | float32 | bfloat16 | float16")
-    p.add_argument("--enable-thinking", action="store_true",
-                   help="Qwen3 thinking mode. Note: its template drops old <think> blocks, "
-                        "which breaks the token prefix between turns (a good thing to measure).")
+    p.add_argument(
+        "--enable-thinking",
+        action="store_true",
+        help="Qwen3 thinking mode. Note: its template drops old <think> blocks, "
+        "which breaks the token prefix between turns (a good thing to measure).",
+    )
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     a = p.parse_args()

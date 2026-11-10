@@ -44,7 +44,7 @@ def assemble_segments(calls: list[LLMCall]) -> tuple[list[Segment], list[dict[st
             lps = None
 
         if cur is not None and prompt[: len(cur.tokens)] == cur.tokens:
-            delta = prompt[len(cur.tokens):]
+            delta = prompt[len(cur.tokens) :]
             cur.tokens += delta
             cur.loss_mask += [0] * len(delta)
             cur.logprobs += [0.0] * len(delta)

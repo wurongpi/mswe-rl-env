@@ -79,8 +79,13 @@ class Recorder:
             return self._sessions.pop(sid, [])
 
 
-def build_app(upstream: str, inject: dict[str, Any] | None = None, record_dir: str | None = None,
-              timeout: float = 600.0, strip_token_fields: bool = True) -> Starlette:
+def build_app(
+    upstream: str,
+    inject: dict[str, Any] | None = None,
+    record_dir: str | None = None,
+    timeout: float = 600.0,
+    strip_token_fields: bool = True,
+) -> Starlette:
     upstream = upstream.rstrip("/")
     recorder = Recorder(record_dir)
     session = requests.Session()
@@ -165,8 +170,12 @@ def main():
     a = p.parse_args()
     import uvicorn
 
-    uvicorn.run(build_app(a.upstream, json.loads(a.inject), a.record_dir), host=a.host, port=a.port,
-                log_level="warning")
+    uvicorn.run(
+        build_app(a.upstream, json.loads(a.inject), a.record_dir),
+        host=a.host,
+        port=a.port,
+        log_level="warning",
+    )
 
 
 if __name__ == "__main__":

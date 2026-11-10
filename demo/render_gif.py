@@ -16,10 +16,18 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 BG, FG = (24, 26, 33), (220, 223, 228)
-COLORS = {"31": (240, 98, 98), "32": (106, 214, 120), "33": (235, 196, 90), "90": (128, 133, 145),
-          "36": (98, 200, 230)}
-FONTS = ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/SFNSMono.ttf",
-         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"]
+COLORS = {
+    "31": (240, 98, 98),
+    "32": (106, 214, 120),
+    "33": (235, 196, 90),
+    "90": (128, 133, 145),
+    "36": (98, 200, 230),
+}
+FONTS = [
+    "/System/Library/Fonts/Menlo.ttc",
+    "/System/Library/Fonts/SFNSMono.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+]
 BOLD_FONTS = ["/System/Library/Fonts/Menlo.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"]
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 
@@ -40,7 +48,7 @@ def parse_line(line: str, state=(FG, False, False)):
     spans, pos = [], 0
     for m in SGR.finditer(line):
         if m.start() > pos:
-            spans.append((line[pos:m.start()], color, bold, dim))
+            spans.append((line[pos : m.start()], color, bold, dim))
         for code in (m.group(1) or "0").split(";"):
             if code in ("0", ""):
                 color, bold, dim = FG, False, False
@@ -59,7 +67,11 @@ def parse_line(line: str, state=(FG, False, False)):
 class Term:
     def __init__(self, cols, rows, size):
         self.font = load_font(FONTS, size)
-        self.bold = load_font(BOLD_FONTS, size, index=1 if BOLD_FONTS[0].endswith(".ttc") and Path(BOLD_FONTS[0]).exists() else 0)
+        self.bold = load_font(
+            BOLD_FONTS,
+            size,
+            index=1 if BOLD_FONTS[0].endswith(".ttc") and Path(BOLD_FONTS[0]).exists() else 0,
+        )
         self.cw = self.font.getbbox("M")[2]
         self.lh = int(size * 1.35)
         self.cols, self.rows = cols, rows

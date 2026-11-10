@@ -62,14 +62,18 @@ def download_jsonl() -> Path:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as e:
-        raise SystemExit("huggingface_hub is not installed: run `uv sync --extra infer` (or --extra mlx), "
-                         "or pass --input with a local humanevalpack.jsonl") from e
+        raise SystemExit(
+            "huggingface_hub is not installed: run `uv sync --extra infer` (or --extra mlx), "
+            "or pass --input with a local humanevalpack.jsonl"
+        ) from e
     try:
         return Path(hf_hub_download(REPO_ID, JSONL_IN_REPO, repo_type="dataset"))
     except Exception as e:
-        raise SystemExit(f"could not download {JSONL_IN_REPO} from {REPO_ID} ({e}).\n"
-                         "Check the network / HF_ENDPOINT, or download the Python split yourself "
-                         "and pass it with --input.") from e
+        raise SystemExit(
+            f"could not download {JSONL_IN_REPO} from {REPO_ID} ({e}).\n"
+            "Check the network / HF_ENDPOINT, or download the Python split yourself "
+            "and pass it with --input."
+        ) from e
 
 
 def read_rows(path: Path) -> list[dict[str, Any]]:
@@ -103,11 +107,16 @@ def render_test_file(row: dict[str, Any]) -> str:
 
 def instruction(row: dict[str, Any], with_docstring: bool) -> str:
     entry = row["entry_point"]
-    spec = ("Its docstring describes the intended behaviour." if with_docstring
-            else "Work out the intended behaviour from the code and the function name.")
-    return (f"The function `{entry}` in solution.py contains a bug: it returns wrong results or "
-            f"does not terminate for some inputs. {spec}\n"
-            f"Find the bug and fix it by editing solution.py. Keep the function name and signature.")
+    spec = (
+        "Its docstring describes the intended behaviour."
+        if with_docstring
+        else "Work out the intended behaviour from the code and the function name."
+    )
+    return (
+        f"The function `{entry}` in solution.py contains a bug: it returns wrong results or "
+        f"does not terminate for some inputs. {spec}\n"
+        f"Find the bug and fix it by editing solution.py. Keep the function name and signature."
+    )
 
 
 def write_task(row: dict[str, Any], out_dir: Path, with_docstring: bool = True) -> Path:
@@ -142,7 +151,9 @@ def convert(rows: list[dict[str, Any]], out_dir: Path, with_docstring: bool = Tr
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Convert HumanEvalFix (Python) into mswe-rl-env tasks")
-    p.add_argument("--input", help="local humanevalpack.jsonl (Python split); downloaded from the HF hub if omitted")
+    p.add_argument(
+        "--input", help="local humanevalpack.jsonl (Python split); downloaded from the HF hub if omitted"
+    )
     p.add_argument("--out", default="tasks/humanevalfix")
     p.add_argument("--hint", choices=["docstring", "none"], default="docstring")
     p.add_argument("--limit", type=int, default=None, help="only convert the first N problems")

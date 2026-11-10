@@ -1,14 +1,14 @@
 """Task format (one directory per task):
 
-    <task_set>/<name>/
-      task.yaml       instruction: str
-                      image: str            (default python:3.11-slim)
-                      metadata: mapping     (optional, e.g. bug_type; copied into reports)
-      repo/           files copied into the sandbox workspace
-      tests/test.sh   run after the agent finishes; exit 0 = pass.
-                      Gets $WORKSPACE and $TESTS_DIR in its environment.
-      solution/       optional reference solution: files copied over the workspace.
-                      Never shown to the agent; used by `mswe-check-tasks`.
+<task_set>/<name>/
+  task.yaml       instruction: str
+                  image: str            (default python:3.11-slim)
+                  metadata: mapping     (optional, e.g. bug_type; copied into reports)
+  repo/           files copied into the sandbox workspace
+  tests/test.sh   run after the agent finishes; exit 0 = pass.
+                  Gets $WORKSPACE and $TESTS_DIR in its environment.
+  solution/       optional reference solution: files copied over the workspace.
+                  Never shown to the agent; used by `mswe-check-tasks`.
 """
 
 from __future__ import annotations

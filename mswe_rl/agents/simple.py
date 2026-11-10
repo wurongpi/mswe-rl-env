@@ -27,20 +27,35 @@ SYSTEM = (
 BASH_RE = re.compile(r"```mswea_bash_command\s*\n(.*?)\n```", re.S)
 
 
-def run_simple_agent(task_text: str, sandbox, api_base: str, model_name: str = "local",
-                     step_limit: int = 15, temperature: float = 1.0, max_tokens: int = 1024,
-                     max_history: int | None = None, timeout: float = 600) -> str:
+def run_simple_agent(
+    task_text: str,
+    sandbox,
+    api_base: str,
+    model_name: str = "local",
+    step_limit: int = 15,
+    temperature: float = 1.0,
+    max_tokens: int = 1024,
+    max_history: int | None = None,
+    timeout: float = 600,
+) -> str:
     head = [
         {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": f"Working directory: {sandbox.get_template_vars()['cwd']}\n\nTask:\n{task_text}"},
+        {
+            "role": "user",
+            "content": f"Working directory: {sandbox.get_template_vars()['cwd']}\n\nTask:\n{task_text}",
+        },
     ]
     tail: list[dict] = []
     for _ in range(step_limit):
         window = tail if max_history is None else tail[-max_history:]
         r = requests.post(
             f"{api_base}/chat/completions",
-            json={"model": model_name, "messages": head + window,
-                  "temperature": temperature, "max_tokens": max_tokens},
+            json={
+                "model": model_name,
+                "messages": head + window,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
             timeout=timeout,
         )
         r.raise_for_status()
@@ -49,14 +64,21 @@ def run_simple_agent(task_text: str, sandbox, api_base: str, model_name: str = "
 
         m = BASH_RE.search(reply)
         if not m:
-            tail.append({"role": "user", "content": "Format error: reply with exactly one ```mswea_bash_command block."})
+            tail.append(
+                {
+                    "role": "user",
+                    "content": "Format error: reply with exactly one ```mswea_bash_command block.",
+                }
+            )
             continue
         cmd = m.group(1).strip()
         out = sandbox.execute(cmd)
         if out["output"].lstrip().startswith(SUBMIT_MARKER):
             return "Submitted"
-        tail.append({
-            "role": "user",
-            "content": f"<returncode>{out['returncode']}</returncode>\n<output>\n{out['output'][-4000:]}</output>",
-        })
+        tail.append(
+            {
+                "role": "user",
+                "content": f"<returncode>{out['returncode']}</returncode>\n<output>\n{out['output'][-4000:]}</output>",
+            }
+        )
     return "LimitsExceeded"

@@ -31,8 +31,9 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def build_report(episodes: list[dict[str, Any]], samples: list[dict[str, Any]],
-                 bug_types: dict[str, str] | None = None) -> dict[str, Any]:
+def build_report(
+    episodes: list[dict[str, Any]], samples: list[dict[str, Any]], bug_types: dict[str, str] | None = None
+) -> dict[str, Any]:
     valid = [e for e in episodes if e["status"] != "env_error"]
     by_task: dict[str, list[float]] = defaultdict(list)
     for e in valid:
@@ -57,35 +58,48 @@ def build_report(episodes: list[dict[str, Any]], samples: list[dict[str, Any]],
         "mean_episode_seconds": _mean([e["duration_s"] for e in valid]),
         "samples": len(samples),
         "mean_tokens_per_sample": _mean([len(s["tokens"]) for s in samples]),
-        "trained_token_fraction": (sum(sum(s["loss_mask"]) for s in samples)
-                                   / max(1, sum(len(s["tokens"]) for s in samples))),
+        "trained_token_fraction": (
+            sum(sum(s["loss_mask"]) for s in samples) / max(1, sum(len(s["tokens"]) for s in samples))
+        ),
         "samples_missing_logprobs": sum(1 for s in samples if not s.get("logprobs_complete", True)),
     }
     if bug_types:
         per: dict[str, list[float]] = defaultdict(list)
         for e in valid:
             per[bug_types.get(e["task"]) or "unknown"].append(e["reward"])
-        report["pass_rate_by_bug_type"] = {k: {"episodes": len(v), "pass_rate": _mean(v)}
-                                           for k, v in sorted(per.items())}
+        report["pass_rate_by_bug_type"] = {
+            k: {"episodes": len(v), "pass_rate": _mean(v)} for k, v in sorted(per.items())
+        }
     return report
 
 
+def pct(x: float) -> str:
+    return f"{x:.1%}"
+
+
 def print_report(r: dict[str, Any], style: Style) -> None:
-    pct = lambda x: f"{x:.1%}"  # noqa: E731
     print(style("bold", "── rollout report ────────────────────────"))
-    print(f"  episodes             {r['episodes']} ({r['valid_episodes']} valid, env errors {pct(r['env_error_rate'])})")
+    print(
+        f"  episodes             {r['episodes']} ({r['valid_episodes']} valid, env errors {pct(r['env_error_rate'])})"
+    )
     print(f"  pass rate            {pct(r['pass_rate'])} of valid episodes")
     print(f"  tasks solved ≥ once  {r['tasks_solved_at_least_once']}/{r['tasks']}")
     if r["groups"]:
-        print(f"  reward signal        {r['groups_mixed']}/{r['groups']} groups mixed "
-              f"({r['groups_all_pass']} all-pass, {r['groups_all_fail']} all-fail)")
+        print(
+            f"  reward signal        {r['groups_mixed']}/{r['groups']} groups mixed "
+            f"({r['groups_all_pass']} all-pass, {r['groups_all_fail']} all-fail)"
+        )
     else:
         print("  reward signal        n/a (needs --group-size ≥ 2)")
     print(f"  calls per episode    {r['mean_calls_per_episode']:.1f}")
-    print(f"  prefix breaks        {r['episodes_with_prefix_break']}/{r['valid_episodes']} episodes, "
-          f"{pct(r['prefix_breaks_per_call'])} of calls")
-    print(f"  samples              {r['samples']}, {r['mean_tokens_per_sample']:.0f} tokens each, "
-          f"{pct(r['trained_token_fraction'])} trained")
+    print(
+        f"  prefix breaks        {r['episodes_with_prefix_break']}/{r['valid_episodes']} episodes, "
+        f"{pct(r['prefix_breaks_per_call'])} of calls"
+    )
+    print(
+        f"  samples              {r['samples']}, {r['mean_tokens_per_sample']:.0f} tokens each, "
+        f"{pct(r['trained_token_fraction'])} trained"
+    )
     if r["samples_missing_logprobs"]:
         print(style("yellow", f"  missing logprobs     {r['samples_missing_logprobs']} samples"))
     print(f"  episode duration     {r['mean_episode_seconds']:.1f}s mean")

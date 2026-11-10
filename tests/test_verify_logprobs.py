@@ -13,7 +13,9 @@ from mswe_rl.verify_logprobs import compare_sample, main, summarize, verify
 
 @pytest.fixture
 def samples(proxy_url, tasks):
-    _, a = run_episode(tasks["fix_add"], proxy_url, mini_swe_agent_fn("scripted", step_limit=10), backend="local")
+    _, a = run_episode(
+        tasks["fix_add"], proxy_url, mini_swe_agent_fn("scripted", step_limit=10), backend="local"
+    )
     # history truncation -> several segments per episode
     agent = simple_agent_fn("scripted", step_limit=10, max_history=2)
     _, b = run_episode(tasks["fix_fizzbuzz"], proxy_url, agent, backend="local")

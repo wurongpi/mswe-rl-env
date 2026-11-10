@@ -40,8 +40,14 @@ class Scorer(Protocol):
 class HFScorer:
     """HF transformers on MPS / CUDA / CPU."""
 
-    def __init__(self, model_id: str, device: str = "auto", dtype: str = "auto",
-                 revision: str | None = None, offline: bool = False):
+    def __init__(
+        self,
+        model_id: str,
+        device: str = "auto",
+        dtype: str = "auto",
+        revision: str | None = None,
+        offline: bool = False,
+    ):
         import torch
         from transformers import AutoModelForCausalLM
 
@@ -54,7 +60,9 @@ class HFScorer:
         else:
             torch_dtype = getattr(torch, dtype)
         path = resolve_model(model_id, revision, offline)
-        self.model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch_dtype).to(self.device).eval()
+        self.model = (
+            AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch_dtype).to(self.device).eval()
+        )
 
     def score(self, tokens: list[int]) -> list[float]:
         torch = self.torch
@@ -102,8 +110,10 @@ class SampleReport:
 def compare_sample(sample: dict[str, Any], recomputed: list[float], tolerance: float) -> SampleReport:
     tokens, mask, recorded = sample["tokens"], sample["loss_mask"], sample["rollout_logprobs"]
     if not (len(tokens) == len(mask) == len(recorded) == len(recomputed)):
-        raise ValueError(f"length mismatch in sample {sample.get('episode_id')}: tokens={len(tokens)} "
-                         f"mask={len(mask)} rollout_logprobs={len(recorded)} recomputed={len(recomputed)}")
+        raise ValueError(
+            f"length mismatch in sample {sample.get('episode_id')}: tokens={len(tokens)} "
+            f"mask={len(mask)} rollout_logprobs={len(recorded)} recomputed={len(recomputed)}"
+        )
     idx = [i for i, m in enumerate(mask) if m]
     diffs = [abs(recorded[i] - recomputed[i]) for i in idx]
     n = len(idx)
@@ -154,8 +164,9 @@ def make_scorer(engine: str, model: str | None, **kw) -> Scorer:
         raise SystemExit("--model is required for the hf and mlx engines")
     if engine == "mlx":
         return MLXScorer(model, kw.get("revision"), kw.get("offline", False))
-    return HFScorer(model, kw.get("device", "auto"), kw.get("dtype", "auto"),
-                    kw.get("revision"), kw.get("offline", False))
+    return HFScorer(
+        model, kw.get("device", "auto"), kw.get("dtype", "auto"), kw.get("revision"), kw.get("offline", False)
+    )
 
 
 def main(argv=None) -> int:
@@ -167,7 +178,9 @@ def main(argv=None) -> int:
     p.add_argument("--offline", action="store_true")
     p.add_argument("--device", default="auto")
     p.add_argument("--dtype", default="auto")
-    p.add_argument("--tolerance", type=float, default=0.05, help="max |Δ logprob| per token counted as a match")
+    p.add_argument(
+        "--tolerance", type=float, default=0.05, help="max |Δ logprob| per token counted as a match"
+    )
     p.add_argument("--limit", type=int, default=None, help="only check the first N samples")
     p.add_argument("--json", dest="json_out", default=None, help="write the full report to this file")
     p.add_argument("--color", action="store_true")
@@ -178,7 +191,9 @@ def main(argv=None) -> int:
     if not samples:
         print("no samples with complete logprobs to verify")
         return 1
-    scorer = make_scorer(a.engine, a.model, revision=a.revision, offline=a.offline, device=a.device, dtype=a.dtype)
+    scorer = make_scorer(
+        a.engine, a.model, revision=a.revision, offline=a.offline, device=a.device, dtype=a.dtype
+    )
     reports = verify(samples, scorer, a.tolerance)
     summary = summarize(reports)
 
@@ -186,18 +201,25 @@ def main(argv=None) -> int:
         ok = r.over_tolerance == 0
         tag = style("green", "match   ") if ok else style("red", "MISMATCH")
         where = "" if ok else f"  worst at token {r.worst_position}, {r.over_tolerance} over tolerance"
-        print(f"  {tag} {r.episode_id} seg {r.segment_index}  trained={r.trained_tokens:<5} "
-              f"mean|Δ|={r.mean_abs_diff:.4f}  max|Δ|={r.max_abs_diff:.4f}{where}")
+        print(
+            f"  {tag} {r.episode_id} seg {r.segment_index}  trained={r.trained_tokens:<5} "
+            f"mean|Δ|={r.mean_abs_diff:.4f}  max|Δ|={r.max_abs_diff:.4f}{where}"
+        )
     print(style("bold", "\n── logprob check ─────────────────────────"))
-    print(f"  samples          {summary['samples']}" + (f" ({skipped} skipped: no logprobs)" if skipped else ""))
+    print(
+        f"  samples          {summary['samples']}" + (f" ({skipped} skipped: no logprobs)" if skipped else "")
+    )
     print(f"  trained tokens   {summary['trained_tokens']}")
     print(f"  mean |Δ logprob| {summary['mean_abs_diff']:.4f}")
     print(f"  max  |Δ logprob| {summary['max_abs_diff']:.4f}")
-    print(f"  over tolerance   {summary['tokens_over_tolerance']} tokens in "
-          f"{summary['samples_over_tolerance']} samples (tolerance {a.tolerance})")
+    print(
+        f"  over tolerance   {summary['tokens_over_tolerance']} tokens in "
+        f"{summary['samples_over_tolerance']} samples (tolerance {a.tolerance})"
+    )
     if a.json_out:
-        Path(a.json_out).write_text(json.dumps(
-            {"summary": summary, "samples": [asdict(r) for r in reports]}, indent=2))
+        Path(a.json_out).write_text(
+            json.dumps({"summary": summary, "samples": [asdict(r) for r in reports]}, indent=2)
+        )
     return 0 if summary["tokens_over_tolerance"] == 0 else 1
 
 

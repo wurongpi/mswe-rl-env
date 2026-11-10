@@ -2,16 +2,26 @@ from mswe_rl.report import build_report
 
 
 def ep(task, status, reward, breaks=0, calls=3):
-    return {"task": task, "status": status, "reward": reward, "num_calls": calls,
-            "prefix_breaks": [{}] * breaks, "duration_s": 2.0}
+    return {
+        "task": task,
+        "status": status,
+        "reward": reward,
+        "num_calls": calls,
+        "prefix_breaks": [{}] * breaks,
+        "duration_s": 2.0,
+    }
 
 
 def test_reward_signal_counts_mixed_groups_only():
     episodes = [
-        ep("a", "pass", 1.0), ep("a", "fail", 0.0),          # mixed: the only group GRPO learns from
-        ep("b", "pass", 1.0), ep("b", "pass", 1.0),          # all-pass
-        ep("c", "fail", 0.0), ep("c", "fail", 0.0, breaks=1),  # all-fail
-        ep("d", "env_error", None), ep("d", "fail", 0.0),    # one valid episode: not a group
+        ep("a", "pass", 1.0),
+        ep("a", "fail", 0.0),  # mixed: the only group GRPO learns from
+        ep("b", "pass", 1.0),
+        ep("b", "pass", 1.0),  # all-pass
+        ep("c", "fail", 0.0),
+        ep("c", "fail", 0.0, breaks=1),  # all-fail
+        ep("d", "env_error", None),
+        ep("d", "fail", 0.0),  # one valid episode: not a group
     ]
     samples = [{"tokens": [1, 2, 3, 4], "loss_mask": [0, 0, 1, 1], "logprobs_complete": True}]
     r = build_report(episodes, samples, {"a": "operator misuse", "b": "operator misuse"})
