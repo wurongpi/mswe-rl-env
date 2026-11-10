@@ -1,4 +1,4 @@
-"""Run mini-swe-agent (v2.x, vendored as a git submodule) against our sandbox.
+"""Run mini-swe-agent (v2.x, pinned as a git submodule) against our sandbox.
 
 Two adapters plug our pieces into mini-swe-agent's protocols:
 
@@ -27,10 +27,11 @@ from typing import Any
 import requests
 import yaml
 
+from . import SUBMIT_MARKER
+
 os.environ.setdefault("MSWEA_SILENT_STARTUP", "1")
 os.environ.setdefault("MSWEA_COST_TRACKING", "ignore_errors")
 
-SUBMIT = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
 
 
 class SandboxEnv:
@@ -49,7 +50,7 @@ class SandboxEnv:
         out = self.sandbox.execute(command, cwd, timeout=timeout)  # EnvError propagates
         out.setdefault("exception_info", "")
         lines = out.get("output", "").lstrip().splitlines(keepends=True)
-        if lines and lines[0].strip() == SUBMIT and out["returncode"] == 0:
+        if lines and lines[0].strip() == SUBMIT_MARKER and out["returncode"] == 0:
             sub = "".join(lines[1:])
             raise Submitted({"role": "exit", "content": sub,
                              "extra": {"exit_status": "Submitted", "submission": sub}})

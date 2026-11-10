@@ -18,7 +18,7 @@ GREEN, GRAY, BOLD, END = "\033[32m", "\033[90m", "\033[1m", "\033[0m"
 
 def load_tokenizer(name: str):
     if name == "toy":
-        from .toy_tokenizer import ToyTokenizer
+        from .testing.toy_tokenizer import ToyTokenizer
 
         return ToyTokenizer().decode
     from transformers import AutoTokenizer

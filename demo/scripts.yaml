@@ -1,4 +1,4 @@
-# Scripted replies for the offline demo (mswe_rl.fake_server).
+# Scripted replies for the offline demo (mswe_rl.testing.fake_server).
 # `match` is a substring of the task instruction; replies are used in order.
 # Edits use python one-liners so they behave the same on macOS and Linux.
 - match: "add(a, b)"

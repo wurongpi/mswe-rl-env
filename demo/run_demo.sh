@@ -11,7 +11,7 @@ BACKEND=${BACKEND:-local}
 OUT=runs/demo
 
 mkdir -p "$OUT"
-$PY -m mswe_rl.fake_server --script demo/scripts.yaml --port 8000 &
+$PY -m mswe_rl.testing.fake_server --script demo/scripts.yaml --port 8000 &
 FAKE=$!
 $PY -m mswe_rl.proxy --upstream http://127.0.0.1:8000 --port 8100 --record-dir "$OUT/calls" &
 PROXY=$!

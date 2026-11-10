@@ -25,10 +25,32 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Any, Protocol
 
 
 class EnvError(RuntimeError):
     """Infrastructure failure: not the policy's fault, exclude from training."""
+
+
+class Sandbox(Protocol):
+    """What an episode needs from a sandbox. Both backends implement it."""
+
+    workdir: str
+
+    def start(self) -> None: ...
+
+    def execute(self, command: Any, cwd: str = "", *, timeout: int | None = None) -> dict[str, Any]:
+        """Run a shell command. Returns {"output": str, "returncode": int}."""
+
+    def get_template_vars(self) -> dict[str, Any]: ...
+
+    def write_files(self, src_dir: Path) -> None:
+        """Copy the contents of src_dir over the workspace (used to apply reference solutions)."""
+
+    def run_tests(self, tests_dir: Path, timeout: int = 120) -> tuple[bool, str]:
+        """Inject the hidden tests and run tests/test.sh. Returns (passed, log tail)."""
+
+    def stop(self) -> None: ...
 
 
 TEMPLATE_VARS = {"system": "Linux", "release": "", "version": "", "machine": "aarch64"}
@@ -89,6 +111,9 @@ class DockerSandbox:
     def get_template_vars(self) -> dict:
         return {**TEMPLATE_VARS, "cwd": self.workdir}
 
+    def write_files(self, src_dir: Path) -> None:
+        self._run(["cp", f"{Path(src_dir)}/.", f"{self.name}:{self.workdir}"])
+
     # --- reward ---
     def run_tests(self, tests_dir: Path, timeout: int = 120) -> tuple[bool, str]:
         self._run(["cp", f"{Path(tests_dir)}/.", f"{self.name}:/tests"])
@@ -140,6 +165,9 @@ class LocalSandbox:
 
         return {**platform.uname()._asdict(), "cwd": self.workdir}
 
+    def write_files(self, src_dir: Path) -> None:
+        shutil.copytree(src_dir, self.workdir, dirs_exist_ok=True)
+
     def run_tests(self, tests_dir: Path, timeout: int = 120) -> tuple[bool, str]:
         assert self.root is not None
         dst = self.root / "tests"
@@ -157,7 +185,7 @@ class LocalSandbox:
             shutil.rmtree(self.root, ignore_errors=True)
 
 
-def make_sandbox(backend: str, image: str, repo_dir: Path, **kw):
+def make_sandbox(backend: str, image: str, repo_dir: Path, **kw) -> Sandbox:
     if backend == "docker":
         return DockerSandbox(image, repo_dir, **kw)
     if backend == "local":

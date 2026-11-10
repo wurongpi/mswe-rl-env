@@ -1,6 +1,6 @@
 """Batch rollout: G episodes per task (a GRPO group), N in parallel.
 
-    uv run mswe-rollout --tasks tasks --agent mini --model Qwen/Qwen3-1.7B \
+    uv run mswe-rollout --tasks tasks/toy --agent mini --model Qwen/Qwen3-1.7B \
         --backend docker --group-size 4 --concurrency 2 --out runs/samples.jsonl
 
 Writes:
@@ -18,24 +18,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
 
-from .episode import mini_swe_agent_fn, run_episode, simple_agent_fn
+from ._term import Style
+from .agents import mini_swe_agent_fn, simple_agent_fn
+from .episode import run_episode
 from .tasks import load_tasks
 
-C = {"pass": "\033[32m", "fail": "\033[31m", "env_error": "\033[33m", "dim": "\033[2m", "bold": "\033[1m",
-     "end": "\033[0m"}
-
-
-def _c(key: str, text: str) -> str:
-    return f"{C[key]}{text}{C['end']}" if sys.stdout.isatty() or _FORCE_COLOR else text
-
-
-_FORCE_COLOR = False
+_STATUS_COLOR = {"pass": "green", "fail": "red", "env_error": "yellow"}
 
 
 def main(argv=None):
-    global _FORCE_COLOR
     p = argparse.ArgumentParser(description="Collect token-level RL rollouts with mini-swe-agent")
-    p.add_argument("--tasks", default="tasks")
+    p.add_argument("--tasks", default="tasks/toy", help="task set directory")
     p.add_argument("--only", nargs="*", help="task names to run")
     p.add_argument("--proxy", default="http://127.0.0.1:8100")
     p.add_argument("--agent", choices=["mini", "simple"], default="mini")
@@ -52,7 +45,7 @@ def main(argv=None):
     p.add_argument("--out", default="runs/samples.jsonl")
     p.add_argument("--color", action="store_true", help="force ANSI colors")
     a = p.parse_args(argv)
-    _FORCE_COLOR = a.color
+    style = Style(a.color)
 
     tasks = load_tasks(Path(a.tasks), a.only)
     if not tasks:
@@ -67,7 +60,7 @@ def main(argv=None):
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     ep_path = out.with_suffix(out.suffix + ".episodes.jsonl")
-    print(_c("bold", f"▶ {len(jobs)} episodes = {len(tasks)} tasks × group {a.group_size}, "
+    print(style("bold", f"▶ {len(jobs)} episodes = {len(tasks)} tasks × group {a.group_size}, "
                      f"agent={a.agent}, backend={a.backend}, concurrency={a.concurrency}"))
 
     t0 = time.time()
@@ -82,8 +75,8 @@ def main(argv=None):
             n_samples += len(samples)
             fe.write(json.dumps(asdict(res), ensure_ascii=False) + "\n")
             reward = "-" if res.reward is None else f"{res.reward:.0f}"
-            tag = _c(res.status, f"{res.status:<9}")
-            extra = f"  {_c('dim', res.error[:80])}" if res.error else ""
+            tag = style(_STATUS_COLOR[res.status], f"{res.status:<9}")
+            extra = f"  {style('dim', res.error[:80])}" if res.error else ""
             print(f"  {tag} {res.task:<16} reward={reward}  calls={res.num_calls:<2} "
                   f"segments={res.num_segments} breaks={len(res.prefix_breaks)} "
                   f"exit={res.agent_exit:<14} {res.duration_s:5.1f}s{extra}")
@@ -92,7 +85,7 @@ def main(argv=None):
     n = len(results)
     cnt = {k: sum(r.status == k for r in results) for k in ("pass", "fail", "env_error")}
     valid = n - cnt["env_error"]
-    print(_c("bold", "\n── summary ──────────────────────────────"))
+    print(style("bold", "\n── summary ──────────────────────────────"))
     print(f"  pass rate        {cnt['pass']}/{valid} valid episodes"
           + (f" ({cnt['pass'] / valid:.0%})" if valid else ""))
     print(f"  env errors       {cnt['env_error']} (excluded from training)")

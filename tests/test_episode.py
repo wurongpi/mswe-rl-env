@@ -3,7 +3,8 @@ import subprocess
 
 import pytest
 
-from mswe_rl.episode import mini_swe_agent_fn, run_episode, simple_agent_fn
+from mswe_rl.agents import mini_swe_agent_fn, simple_agent_fn
+from mswe_rl.episode import run_episode
 
 
 def _mini():

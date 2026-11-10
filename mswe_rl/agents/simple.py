@@ -16,12 +16,12 @@ import re
 
 import requests
 
-SUBMIT = "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT"
+from . import SUBMIT_MARKER
 
 SYSTEM = (
     "You are a software engineer working in a Linux shell. Reply with a short THOUGHT and "
     "exactly one ```mswea_bash_command code block containing one command. When the task is done, run "
-    f"`echo {SUBMIT}`."
+    f"`echo {SUBMIT_MARKER}`."
 )
 
 BASH_RE = re.compile(r"```mswea_bash_command\s*\n(.*?)\n```", re.S)
@@ -53,7 +53,7 @@ def run_simple_agent(task_text: str, sandbox, api_base: str, model_name: str = "
             continue
         cmd = m.group(1).strip()
         out = sandbox.execute(cmd)
-        if out["output"].lstrip().startswith(SUBMIT):
+        if out["output"].lstrip().startswith(SUBMIT_MARKER):
             return "Submitted"
         tail.append({
             "role": "user",

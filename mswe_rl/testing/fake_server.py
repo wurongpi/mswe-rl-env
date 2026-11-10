@@ -9,7 +9,7 @@ and the ordered list of assistant replies. The next reply follows the last
 scripted reply found in the history, so it stays on script even when the agent
 truncates its history.
 
-    python -m mswe_rl.fake_server --script demo/scripts.yaml --port 8000
+    python -m mswe_rl.testing.fake_server --script demo/scripts.yaml --port 8000
 """
 
 from __future__ import annotations
