@@ -14,7 +14,10 @@ FORMAT_ERROR_SCRIPT = {
     "match": "FORMAT_ERROR_CASE",
     "replies": [
         "I think the bug is in add, let me fix it.",
-        "```mswea_bash_command\nsed -i 's/a - b/a + b/' calc.py\n```",
+        # python, not `sed -i`: BSD sed on macOS reads the next argument as a backup suffix
+        "```mswea_bash_command\n"
+        "python3 -c \"import pathlib; p = pathlib.Path('calc.py'); "
+        "p.write_text(p.read_text().replace('a - b', 'a + b'))\"\n```",
     ],
 }
 
