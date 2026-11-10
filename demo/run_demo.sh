@@ -13,7 +13,7 @@ OUT=runs/demo
 mkdir -p "$OUT"
 $PY -m mswe_rl.testing.fake_server --script demo/scripts.yaml --port 8000 &
 FAKE=$!
-$PY -m mswe_rl.proxy --upstream http://127.0.0.1:8000 --port 8100 --record-dir "$OUT/calls" &
+$PY -m mswe_rl.proxy --upstream http://127.0.0.1:8000 --tokenizer toy --port 8100 --record-dir "$OUT/calls" &
 PROXY=$!
 trap 'kill $FAKE $PROXY 2>/dev/null || true' EXIT
 for _ in $(seq 50); do curl -sf http://127.0.0.1:8100/health >/dev/null && break; sleep 0.2; done

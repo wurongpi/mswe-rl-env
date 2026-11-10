@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-- **已验证**：33 个测试中的 32 个（单元测试 + 用真实 mini-swe-agent 跑的端到端测试，剩下 1 个是 Docker 后端测试）和离线演示，模型均为脚本化假模型。
+- **已验证**：43 个测试中的 42 个（单元测试 + 用真实 mini-swe-agent 跑的端到端测试，剩下 1 个是 Docker 后端测试）和离线演示，模型均为脚本化假模型。
 - **尚未验证**：真实模型上的运行（HF 和 MLX 两个引擎）、Docker 后端、HumanEvalFix 数据集的下载与转换。下文相关命令都按设计写好，但还没有实测结果，欢迎按步骤跑通后补充数字。
 - 已知局限见文末。
 
@@ -29,6 +29,7 @@
 | 问题 | 后果 | 本项目的做法 |
 |---|---|---|
 | 训练时把对话文本**重新分词** | token 与推理时不一致，重要性采样比率失真（训推不一致） | 代理直接记录推理引擎实际吃进和吐出的 token ids |
+| 每轮用聊天模板**重新渲染整段历史** | 模板会改写旧的轮次（如 Qwen3 去掉历史里的 `<think>` 块），实测 Qwen3-1.7B 15 次调用里 14 次前缀断开 | 代理维护每个 episode 的 token 序列，每轮只把新消息转成 token 接在后面（token 进、token 出） |
 | agent **截断或改写历史** | 多轮调用之间的 token 前缀不再连续，硬拼会造出模型从未见过的序列 | 逐次校验前缀，断开就切段，并记录断点位置 |
 | 工具输出也参与 loss | 模型被训练去"预测"环境的输出 | `loss_mask` 只给策略生成的 token 记 1 |
 | 容器崩了、服务挂了也给 0 分 | 把基础设施故障当成策略失败去惩罚 | 归为 `env_error`，`reward=None`，不产出样本 |
@@ -42,7 +43,7 @@ flowchart LR
     E -->|启动| S[(Docker 沙箱<br/>OrbStack / Colima)]
     E -->|运行| A[mini-swe-agent<br/>DefaultAgent]
     A -->|bash 命令| S
-    A -->|"/s/{episode}/v1/chat/completions"| P[录制代理<br/>记录 token ids + logprobs]
+    A -->|"/s/{episode}/v1/chat/completions"| P[录制代理<br/>套聊天模板 · 维护 token 历史<br/>记录 token ids + logprobs]
     P --> M[推理服务<br/>HF transformers on MPS<br/>或 vLLM / SGLang]
     E -->|agent 结束后注入测试| S
     S -->|exit code → reward| E
@@ -77,7 +78,7 @@ docker ps            # 能正常输出就说明可用
 cd ~/mswe-rl-env
 git submodule update --init      # 拉取 third_party/mini-swe-agent（固定在 v2.4.6）
 uv sync                          # 创建 .venv，以可编辑方式安装 mini-swe-agent 子模块
-uv run pytest                    # 33 个测试；OrbStack 运行时 docker 后端测试也会执行
+uv run pytest                    # 43 个测试；OrbStack 运行时 docker 后端测试也会执行
 ```
 
 ### 2. 离线演示（不需要模型）
@@ -126,7 +127,8 @@ uv run mswe-infer --model Qwen/Qwen3-1.7B --offline --port 8000
 
 ```bash
 # 终端 2：录制代理
-uv run mswe-proxy --upstream http://127.0.0.1:8000 --port 8100
+# --tokenizer 要和推理服务加载的模型一致
+uv run mswe-proxy --upstream http://127.0.0.1:8000 --tokenizer mlx-community/Qwen3-1.7B-4bit --port 8100
 
 # 终端 3：采集 rollout，并查看训练样本
 uv run mswe-rollout --agent mini --model Qwen/Qwen3-1.7B --backend docker \
@@ -168,18 +170,13 @@ uv run mswe-report runs/hef/samples.jsonl --tasks tasks/humanevalfix --json runs
 - 内存：MLX 的 Qwen3-1.7B-4bit 只需 1 GB 左右；HF 引擎用默认 fp32 约占 7 GB，8 GB 内存的机器请改用 `Qwen/Qwen3-0.6B` 或加 `--dtype bfloat16`。
 - 速度：MLX 明显快于 HF transformers + MPS。`--concurrency` 设为 1 即可，推理服务内部本来就是串行的。
 - 效果：小模型解题率低、奖励大多为 0 是正常的。这里验证的是**链路正确性**（token 对齐、mask、切段、故障隔离），不是模型能力。
-- 想看前缀断开的真实案例，可以给 `mswe-infer` 加 `--enable-thinking`：Qwen3 的 chat template 会在后续轮次里删掉旧的 `<think>` 块，于是前缀断开，统计里的 `prefix breaks` 会变成非零。
+- Qwen3 默认关闭思考模式；需要时给 `mswe-proxy` 加 `--enable-thinking`（聊天模板现在由代理负责，推理服务只接收 token ids）。
 
 ### 6. 换成 vLLM / SGLang（有 GPU 时）
 
-代理只要求上游返回 `prompt_token_ids`、`choices[0].token_ids` 和 `choices[0].logprobs`。在新版 vLLM 上，可以让代理给每个请求注入相应参数：
+推理服务只需要提供 `/v1/completions`：接收 token ids 形式的 prompt，返回 `choices[0].token_ids` 和 `choices[0].logprobs.token_logprobs`。这正是 vLLM 0.10.2 及以后版本在请求里带 `"return_token_ids": true` 时的返回格式，代理会自动带上这个参数。vLLM 的接入脚本和 AutoDL 上的运行说明还在开发中。
 
-```bash
-uv run mswe-proxy --upstream http://gpu-box:8000 \
-    --inject '{"logprobs": true, "return_token_ids": true}'
-```
-
-参数名在不同版本之间变过，请以你所用版本的文档为准。如果拿不到 token ids，代理会直接报错，**不会**退回到重新分词。
+如果拿不到 token ids，代理会直接报错，**不会**退回到重新分词。
 
 ## 输出格式
 
@@ -200,8 +197,8 @@ uv run mswe-proxy --upstream http://gpu-box:8000 \
 
 ## 关键设计
 
-1. **只用推理引擎给出的 token ids，绝不重新分词。** 文本经过"解码再编码"不一定能还原（空格合并、特殊 token、chat template 改写），用错 token 计算出的重要性采样比率是错的。
-2. **前缀校验和切段。** 第 k 次调用的 prompt 必须以第 k−1 次的"prompt + completion"开头，多出来的部分就是环境追加的内容（mask 为 0）。不满足时就开新的一段，并记录 `mismatch_pos`，方便定位是截断还是模板改写导致的。
+1. **token 进、token 出。** 只用推理引擎实际消费和生成的 token ids，绝不重新分词。聊天模板由代理在 episode 第一轮完整渲染一次；之后每一轮，代理检查 agent 的消息是否只是在上一轮基础上追加，是的话只把新增的消息渲染成 token 接到已有序列后面（`chat_template.py`）。这样模型每一轮看到的都是同一条不断变长的 token 序列。代价是：历史里保留了模型当时看到的形式（例如 Qwen3 的空 `<think>` 块），和普通聊天时模板重新渲染出的历史略有不同。
+2. **前缀校验和切段。** 第 k 次调用的 prompt 必须以第 k−1 次的"prompt + completion"开头，多出来的部分就是环境追加的内容（mask 为 0）。有了第 1 条，只有 agent 自己截断或修改历史时才会断开；断开时开新的一段，并记录 `mismatch_pos`。
 3. **奖励与故障分离。** 只有"agent 正常结束、测试正常执行"的 episode 才有 0 或 1 的奖励。容器启动失败、模型服务不可达、agent 进程崩溃，一律记为 `env_error`、`reward=None`，不产出样本。（这一条是演示时发现的 bug：最初 agent 崩溃会被记为 0 分，见 git 历史。）
 4. **隐藏测试。** 测试目录在 agent 结束后才拷进沙箱，agent 看不到也改不了。
 5. **格式错误时保留模型回复。** mini-swe-agent 在格式错误时只把错误提示加进历史，模型原本的回复会丢掉，导致下一次调用的前缀断开。`ProxyTextModel` 会先把回复补回历史，再加错误提示，保证前缀连续。
@@ -236,7 +233,8 @@ tasks/<task_set>/<name>/
 
 ```
 mswe_rl/
-  proxy.py            OpenAI 兼容的录制代理（按 episode 分 session）
+  proxy.py            录制代理：对 agent 是聊天接口，对推理引擎是 token 进、token 出
+  chat_template.py    聊天模板与 token 历史续接
   infer_server.py     本地推理服务：HF 缓存加载，MLX 或 transformers 引擎
   sandbox.py          Sandbox 协议，DockerSandbox / LocalSandbox，测试注入，故障分类
   tasks.py            任务格式与加载
