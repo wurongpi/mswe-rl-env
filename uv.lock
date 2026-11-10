@@ -1452,6 +1452,7 @@ mlx = [
     { name = "huggingface-hub" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "pyarrow" },
+    { name = "transformers" },
 ]
 
 [package.dev-dependencies]
@@ -1474,6 +1475,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.37" },
     { name = "torch", marker = "extra == 'infer'", specifier = ">=2.4" },
     { name = "transformers", marker = "extra == 'infer'", specifier = ">=4.51" },
+    { name = "transformers", marker = "extra == 'mlx'", specifier = ">=4.51" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]
 provides-extras = ["infer", "mlx"]
