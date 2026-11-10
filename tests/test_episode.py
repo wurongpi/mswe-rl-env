@@ -33,6 +33,12 @@ def test_format_error_keeps_the_token_prefix(proxy_url, tasks):
     assert res.num_calls == 3 and res.prefix_breaks == [] and len(samples) == 1
 
 
+def test_no_prefix_breaks_with_a_history_rewriting_template(think_proxy_url, tasks):
+    res, samples = run_episode(tasks["fix_add"], think_proxy_url, _mini(), backend="local")
+    assert res.status == "pass", res
+    assert res.num_calls == 3 and res.prefix_breaks == [] and len(samples) == 1
+
+
 def test_wrong_fix_gets_zero_reward(proxy_url, tasks):
     res, samples = run_episode(tasks["fix_word_count"], proxy_url, _mini(), backend="local")
     assert res.status == "fail" and res.reward == 0.0

@@ -35,10 +35,6 @@ class _Resp:
 class _Tok:
     eos_token_ids = {EOS}
 
-    def apply_chat_template(self, messages, add_generation_prompt, tokenize, **kw):
-        assert tokenize and add_generation_prompt
-        return [1, 2, 3, len(messages)]
-
     def decode(self, ids, skip_special_tokens=False):
         return " ".join(str(t) for t in ids if not (skip_special_tokens and t == EOS))
 
@@ -78,29 +74,35 @@ def mlx_stub(monkeypatch, tmp_path):
     return install
 
 
-BODY = {"model": "m", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 10}
+BODY = {"model": "m", "prompt": [1, 2, 3, 1], "max_tokens": 10}
 
 
 def test_completion_includes_eos_exactly_once(mlx_stub):
     eng = mlx_stub([5, 6, EOS])
-    r = eng.chat(BODY)
+    r = eng.complete(BODY)
     c = r["choices"][0]
     assert r["prompt_token_ids"] == [1, 2, 3, 1]
     assert c["token_ids"] == [5, 6, EOS] and c["finish_reason"] == "stop"
-    assert [x["logprob"] for x in c["logprobs"]["content"]] == [-0.05, -0.06, -0.99]
-    assert c["message"]["content"] == "5 6"
+    assert c["logprobs"]["token_logprobs"] == [-0.05, -0.06, -0.99]
+    assert c["text"] == "5 6"
 
 
 def test_max_tokens_keeps_last_token_and_reports_length(mlx_stub):
     eng = mlx_stub([5, 6, 7, 8])
-    r = eng.chat({**BODY, "max_tokens": 3})
+    r = eng.complete({**BODY, "max_tokens": 3})
     c = r["choices"][0]
     assert c["token_ids"] == [5, 6, 7] and c["finish_reason"] == "length"
 
 
-def test_prefix_consistency_with_proxy_format(mlx_stub):
-    from mswe_rl.proxy import extract_tokens
+def test_response_is_what_the_proxy_parses(mlx_stub):
+    from mswe_rl.proxy import parse_completion
 
     eng = mlx_stub([5, EOS])
-    prompt, comp, lps = extract_tokens(eng.chat(BODY))
-    assert comp[-1] == EOS and len(lps) == len(comp)
+    comp, lps, text, finish = parse_completion(eng.complete(BODY))
+    assert comp[-1] == EOS and len(lps) == len(comp) and finish == "stop"
+
+
+def test_rejects_text_prompts(mlx_stub):
+    eng = mlx_stub([5, EOS])
+    with pytest.raises(ValueError):
+        eng.complete({"prompt": "hello"})

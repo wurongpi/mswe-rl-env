@@ -1,12 +1,12 @@
-"""Scripted stand-in for the inference server: same response shape, no GPU, no weights.
+"""Scripted stand-in for the inference server: same API as mswe-infer, no GPU, no weights.
 
-Used by the test suite and the offline demo. It tokenizes with a byte-level toy
-tokenizer and a ChatML-style template, so prefix consistency behaves like a real
-chat model: re-sending the same history yields the same token prefix.
+Used by the test suite and the offline demo. It serves /v1/completions on token ids,
+like a real engine behind the recording proxy, and decodes the prompt with the toy
+tokenizer only to decide which scripted reply comes next.
 
 Replies come from a YAML script: for each task, a substring of its instruction
 and the ordered list of assistant replies. The next reply follows the last
-scripted reply found in the history, so it stays on script even when the agent
+scripted reply found in the prompt, so it stays on script even when the agent
 truncates its history.
 
     python -m mswe_rl.testing.fake_server --script demo/scripts.yaml --port 8000
@@ -25,7 +25,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from .toy_tokenizer import IM_END, ToyTokenizer
+from .toy_tokenizer import EMPTY_THINK, IM_END, ToyTokenizer
 
 SUBMIT_REPLY = "Done.\n\n```mswea_bash_command\necho COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT\n```"
 
@@ -48,48 +48,48 @@ class BigramScorer:
         return [0.0] + [bigram_logprob(a, b) for a, b in zip(tokens, tokens[1:])]
 
 
+def _assistant_turns(prompt_text: str) -> list[str]:
+    """Contents of the assistant turns already in the prompt (the last part is the open turn)."""
+    parts = prompt_text.split("<|im_start|>assistant\n")[1:-1]
+    turns = [p.split("<|im_end|>")[0] for p in parts]
+    return [t[len(EMPTY_THINK) :] if t.startswith(EMPTY_THINK) else t for t in turns]
+
+
 def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette:
     tok = tok or ToyTokenizer()
 
-    def pick_script(messages) -> list[str]:
-        first_user = next((m["content"] for m in messages if m["role"] == "user"), "")
-        for s in scripts:
-            if s["match"] in first_user:
-                return s["replies"]
-        return []
-
-    async def chat(request: Request):
-        body = await request.json()
-        messages = [{"role": m["role"], "content": m.get("content") or ""} for m in body["messages"]]
-        replies = pick_script(messages)
-        last = next((m["content"] for m in reversed(messages) if m["role"] == "assistant"), None)
-        if last is None:
+    def next_reply(prompt_text: str) -> str:
+        replies = next((s["replies"] for s in scripts if s["match"] in prompt_text), [])
+        done = _assistant_turns(prompt_text)
+        if not done:
             step = 0
-        elif last in replies:
-            step = replies.index(last) + 1
+        elif done[-1] in replies:
+            step = replies.index(done[-1]) + 1
         else:
-            step = sum(1 for m in messages if m["role"] == "assistant")
-        reply = replies[step] if step < len(replies) else SUBMIT_REPLY
-        prompt_ids = tok.apply_chat_template(messages, add_generation_prompt=True)
+            step = len(done)
+        return replies[step] if step < len(replies) else SUBMIT_REPLY
+
+    async def completions(request: Request):
+        body = await request.json()
+        prompt_ids = list(body["prompt"])
+        reply = next_reply(tok.decode(prompt_ids))
         comp_ids = tok.encode(reply) + [IM_END]
         seq = prompt_ids[-1:] + comp_ids
         lps = [bigram_logprob(a, b) for a, b in zip(seq, seq[1:])]
         return JSONResponse(
             {
-                "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-                "object": "chat.completion",
+                "id": f"cmpl-{uuid.uuid4().hex[:12]}",
+                "object": "text_completion",
                 "created": int(time.time()),
-                "model": body.get("model", "scripted"),
+                "model": body.get("model") or "scripted",
                 "prompt_token_ids": prompt_ids,
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": reply},
-                        "finish_reason": "stop",
+                        "text": reply,
                         "token_ids": comp_ids,
-                        "logprobs": {
-                            "content": [{"token": str(t), "logprob": lp} for t, lp in zip(comp_ids, lps)]
-                        },
+                        "logprobs": {"tokens": [str(t) for t in comp_ids], "token_logprobs": lps},
+                        "finish_reason": "stop",
                     }
                 ],
                 "usage": {
@@ -100,7 +100,7 @@ def build_app(scripts: list[dict], tok: ToyTokenizer | None = None) -> Starlette
             }
         )
 
-    return Starlette(routes=[Route("/v1/chat/completions", chat, methods=["POST"])])
+    return Starlette(routes=[Route("/v1/completions", completions, methods=["POST"])])
 
 
 def main():

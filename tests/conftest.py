@@ -50,9 +50,21 @@ def fake_model_url():
 
 @pytest.fixture(scope="session")
 def proxy_url(fake_model_url, tmp_path_factory):
+    from mswe_rl.chat_template import load_chat_template
     from mswe_rl.proxy import build_app
 
-    return _serve(build_app(fake_model_url, record_dir=str(tmp_path_factory.mktemp("calls"))))
+    template = load_chat_template("toy")
+    return _serve(build_app(fake_model_url, template, record_dir=str(tmp_path_factory.mktemp("calls"))))
+
+
+@pytest.fixture(scope="session")
+def think_proxy_url(fake_model_url, tmp_path_factory):
+    """Proxy whose template rewrites history like Qwen3 (empty <think> only in the generation prompt)."""
+    from mswe_rl.chat_template import load_chat_template
+    from mswe_rl.proxy import build_app
+
+    template = load_chat_template("toy-think")
+    return _serve(build_app(fake_model_url, template, record_dir=str(tmp_path_factory.mktemp("calls"))))
 
 
 @pytest.fixture

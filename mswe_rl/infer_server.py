@@ -1,10 +1,12 @@
-"""Minimal OpenAI-compatible inference server for an M1/M2 Mac (or any CPU/GPU box).
+"""Minimal token-in, token-out inference server for an M1/M2 Mac (or any CPU/GPU box).
 
-Stands in for vLLM / SGLang during local development. It returns exactly what an
-RL rollout needs and what most hosted APIs hide:
-  - prompt_token_ids           (the ids the model actually consumed)
-  - choices[0].token_ids       (the ids it sampled, including the EOS token)
-  - choices[0].logprobs        (log p(token) under the model, temperature 1)
+Stands in for vLLM / SGLang during local development. It serves /v1/completions
+with the prompt given as token ids (the recording proxy applies the chat template)
+and returns what an RL rollout needs, in the same shape as vLLM with
+"return_token_ids": true:
+  - prompt_token_ids                   (echo of the ids the model consumed)
+  - choices[0].token_ids               (the ids it sampled, including the EOS token)
+  - choices[0].logprobs.token_logprobs (log p(token) under the model, temperature 1)
 
 Logprobs are taken from the raw logits (before temperature / top-p), which is
 what a trainer recomputes at temperature 1. Comparing them with the trainer's
@@ -20,10 +22,10 @@ Two engines, same response:
 
 Run:
     uv run hf download Qwen/Qwen3-1.7B            # once (HF_ENDPOINT=https://hf-mirror.com in mainland China)
-    uv run python -m mswe_rl.infer_server --model Qwen/Qwen3-1.7B --port 8000
+    uv run mswe-infer --model Qwen/Qwen3-1.7B --port 8000
 
     uv run hf download mlx-community/Qwen3-1.7B-4bit
-    uv run python -m mswe_rl.infer_server --engine mlx --model mlx-community/Qwen3-1.7B-4bit
+    uv run mswe-infer --engine mlx --model mlx-community/Qwen3-1.7B-4bit
 """
 
 from __future__ import annotations
@@ -71,33 +73,18 @@ def pick_device(name: str):
     return "cpu"
 
 
-def normalize_messages(messages: list[dict]) -> list[dict]:
-    """mini-swe-agent / litellm may send content as a list of parts."""
-    norm = []
-    for m in messages:
-        c = m.get("content")
-        if isinstance(c, list):
-            c = "".join(p.get("text", "") for p in c if isinstance(p, dict))
-        norm.append({"role": m["role"], "content": c or ""})
-    return norm
-
-
-def chat_prompt_ids(tok, body: dict, enable_thinking: bool) -> list[int]:
-    """Apply the chat template once and keep the ids: they are what the model consumes."""
-    tmpl_kwargs = {"enable_thinking": enable_thinking, **(body.get("chat_template_kwargs") or {})}
-    ids = tok.apply_chat_template(
-        normalize_messages(body["messages"]), add_generation_prompt=True, tokenize=True, **tmpl_kwargs
-    )
-    if not isinstance(ids, list):  # BatchEncoding in some versions
-        ids = list(ids["input_ids"])
-    return [int(t) for t in ids]
-
-
 def sampling_params(body: dict) -> tuple[float, float, int]:
     temperature = float(body.get("temperature", 1.0) or 0.0)
     top_p = float(body.get("top_p", 1.0) or 1.0)
     max_new = int(body.get("max_tokens") or body.get("max_completion_tokens") or 1024)
     return temperature, top_p, max_new
+
+
+def prompt_ids_from(body: dict) -> list[int]:
+    prompt = body.get("prompt")
+    if not (isinstance(prompt, list) and all(isinstance(t, int) for t in prompt)):
+        raise ValueError("this server only accepts prompts as token ids (a list of ints)")
+    return prompt
 
 
 def completion_response(
@@ -109,22 +96,20 @@ def completion_response(
     finish: str,
     token_str,
 ) -> dict:
-    """The response shape the recording proxy expects (same as recent vLLM with return_token_ids)."""
+    """/v1/completions response, same shape as vLLM's with "return_token_ids": true."""
     return {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
-        "object": "chat.completion",
+        "id": f"cmpl-{uuid.uuid4().hex[:12]}",
+        "object": "text_completion",
         "created": int(time.time()),
         "model": model,
         "prompt_token_ids": prompt_ids,
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": text},
-                "finish_reason": finish,
+                "text": text,
                 "token_ids": comp_ids,
-                "logprobs": {
-                    "content": [{"token": token_str(t), "logprob": lp} for t, lp in zip(comp_ids, logprobs)]
-                },
+                "logprobs": {"tokens": [token_str(t) for t in comp_ids], "token_logprobs": logprobs},
+                "finish_reason": finish,
             }
         ],
         "usage": {
@@ -143,7 +128,6 @@ class HFEngine:
         model_id: str,
         device: str = "auto",
         dtype: str = "auto",
-        enable_thinking: bool = False,
         revision: str | None = None,
         offline: bool = False,
     ):
@@ -164,12 +148,11 @@ class HFEngine:
             self.device
         )
         self.model.eval()
-        self.enable_thinking = enable_thinking
         self.lock = threading.Lock()  # one generation at a time on a laptop
 
-    def chat(self, body: dict) -> dict:
+    def complete(self, body: dict) -> dict:
         torch = self.torch
-        prompt_ids = chat_prompt_ids(self.tok, body, self.enable_thinking)
+        prompt_ids = prompt_ids_from(body)
         temperature, top_p, max_new = sampling_params(body)
         gen_kwargs = dict(
             max_new_tokens=max_new,
@@ -219,23 +202,20 @@ class MLXEngine:
     collecting every yielded token gives the completion with exactly one EOS.
     """
 
-    def __init__(
-        self, model_id: str, enable_thinking: bool = False, revision: str | None = None, offline: bool = False
-    ):
+    def __init__(self, model_id: str, revision: str | None = None, offline: bool = False):
         from mlx_lm import load
 
         self.model_id = model_id
         self.local_path = resolve_model(model_id, revision, offline)
         self.model, self.tok = load(self.local_path)
         self.device = "mlx"
-        self.enable_thinking = enable_thinking
         self.lock = threading.Lock()
 
-    def chat(self, body: dict) -> dict:
+    def complete(self, body: dict) -> dict:
         from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
 
-        prompt_ids = chat_prompt_ids(self.tok, body, self.enable_thinking)
+        prompt_ids = prompt_ids_from(body)
         temperature, top_p, max_new = sampling_params(body)
         sampler = make_sampler(temp=temperature, top_p=top_p if top_p < 1.0 else 0.0)
         comp_ids: list[int] = []
@@ -264,10 +244,10 @@ Engine = HFEngine  # backwards-compatible name
 
 
 def build_app(engine) -> Starlette:
-    async def chat(request: Request):
+    async def completions(request: Request):
         body = await request.json()
         try:
-            return JSONResponse(await run_in_threadpool(engine.chat, body))
+            return JSONResponse(await run_in_threadpool(engine.complete, body))
         except Exception as e:  # surface errors to the agent instead of hanging
             return JSONResponse({"error": {"message": repr(e)}}, status_code=500)
 
@@ -276,7 +256,7 @@ def build_app(engine) -> Starlette:
 
     return Starlette(
         routes=[
-            Route("/v1/chat/completions", chat, methods=["POST"]),
+            Route("/v1/completions", completions, methods=["POST"]),
             Route("/v1/models", models, methods=["GET"]),
         ]
     )
@@ -295,21 +275,15 @@ def main():
     p.add_argument("--offline", action="store_true", help="only use the local HF cache")
     p.add_argument("--device", default="auto")
     p.add_argument("--dtype", default="auto", help="auto | float32 | bfloat16 | float16")
-    p.add_argument(
-        "--enable-thinking",
-        action="store_true",
-        help="Qwen3 thinking mode. Note: its template drops old <think> blocks, "
-        "which breaks the token prefix between turns (a good thing to measure).",
-    )
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     a = p.parse_args()
     import uvicorn
 
     if a.engine == "mlx":
-        engine = MLXEngine(a.model, a.enable_thinking, a.revision, a.offline)
+        engine = MLXEngine(a.model, a.revision, a.offline)
     else:
-        engine = HFEngine(a.model, a.device, a.dtype, a.enable_thinking, a.revision, a.offline)
+        engine = HFEngine(a.model, a.device, a.dtype, a.revision, a.offline)
     print(f"loaded {a.model} from {engine.local_path} on {engine.device}")
     uvicorn.run(build_app(engine), host=a.host, port=a.port, log_level="warning")
 
