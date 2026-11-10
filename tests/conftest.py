@@ -9,6 +9,15 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# First reply has no action block (a format error), then the model recovers.
+FORMAT_ERROR_SCRIPT = {
+    "match": "FORMAT_ERROR_CASE",
+    "replies": [
+        "I think the bug is in add, let me fix it.",
+        "```mswea_bash_command\nsed -i 's/a - b/a + b/' calc.py\n```",
+    ],
+}
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -32,6 +41,7 @@ def fake_model_url():
     from mswe_rl.testing.fake_server import build_app
 
     scripts = yaml.safe_load((ROOT / "demo" / "scripts.yaml").read_text())
+    scripts.append(FORMAT_ERROR_SCRIPT)
     return _serve(build_app(scripts))
 
 

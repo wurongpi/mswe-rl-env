@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+from dataclasses import replace
 
 import pytest
 
@@ -21,6 +22,15 @@ def test_mini_swe_agent_pass(proxy_url, tasks):
     # every sampled token carries a logprob, every other token is masked out
     assert all((m == 1) == (lp != 0.0) for m, lp in zip(s["loss_mask"], s["rollout_logprobs"]))
     assert s["group_id"] == "fix_add"
+
+
+def test_format_error_keeps_the_token_prefix(proxy_url, tasks):
+    task = replace(tasks["fix_add"], instruction="FORMAT_ERROR_CASE: add() in calc.py is wrong, fix it.")
+    res, samples = run_episode(task, proxy_url, _mini(), backend="local")
+    assert res.status == "pass", res
+    # 3 calls: bad format, fix, submit. The bad reply stays in history,
+    # so every call extends the previous one and the episode is still one segment.
+    assert res.num_calls == 3 and res.prefix_breaks == [] and len(samples) == 1
 
 
 def test_wrong_fix_gets_zero_reward(proxy_url, tasks):
