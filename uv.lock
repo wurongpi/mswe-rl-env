@@ -1444,12 +1444,14 @@ dependencies = [
 [package.optional-dependencies]
 infer = [
     { name = "huggingface-hub" },
+    { name = "pyarrow" },
     { name = "torch" },
     { name = "transformers" },
 ]
 mlx = [
     { name = "huggingface-hub" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "pyarrow" },
 ]
 
 [package.dev-dependencies]
@@ -1465,6 +1467,8 @@ requires-dist = [
     { name = "huggingface-hub", extras = ["cli"], marker = "extra == 'mlx'", specifier = ">=0.34" },
     { name = "mini-swe-agent", editable = "third_party/mini-swe-agent" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'mlx'", specifier = ">=0.25" },
+    { name = "pyarrow", marker = "extra == 'infer'", specifier = ">=15" },
+    { name = "pyarrow", marker = "extra == 'mlx'", specifier = ">=15" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "starlette", specifier = ">=0.37" },
