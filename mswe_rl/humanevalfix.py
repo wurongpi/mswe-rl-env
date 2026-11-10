@@ -4,7 +4,7 @@ Source: https://huggingface.co/datasets/bigcode/humanevalpack (MIT). 164 problem
 each has a function with a human-written bug, the correct solution and unit tests.
 
     uv run mswe-make-humanevalfix --out tasks/humanevalfix            # downloads via the HF hub
-    uv run mswe-make-humanevalfix --input humanevalpack.jsonl --out tasks/humanevalfix
+    uv run mswe-make-humanevalfix --input python/test-00000-of-00001.parquet --out tasks/humanevalfix
     uv run mswe-check-tasks tasks/humanevalfix                        # then verify the grading
 
 Each task becomes:
@@ -34,7 +34,8 @@ import yaml
 from .tasks import DEFAULT_IMAGE
 
 REPO_ID = "bigcode/humanevalpack"
-JSONL_IN_REPO = "data/python/data/humanevalpack.jsonl"
+# The dataset was converted to Parquet; the old data/python/data/humanevalpack.jsonl is gone.
+FILE_IN_REPO = "python/test-00000-of-00001.parquet"
 REQUIRED = ("task_id", "prompt", "declaration", "canonical_solution", "buggy_solution", "test", "entry_point")
 TEST_TIMEOUT_S = 30
 
@@ -58,26 +59,40 @@ from solution import *  # noqa: E402,F403
 """
 
 
-def download_jsonl() -> Path:
+def download() -> Path:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as e:
         raise SystemExit(
             "huggingface_hub is not installed: run `uv sync --extra infer` (or --extra mlx), "
-            "or pass --input with a local humanevalpack.jsonl"
+            "or pass --input with a local copy of the Python split"
         ) from e
     try:
-        return Path(hf_hub_download(REPO_ID, JSONL_IN_REPO, repo_type="dataset"))
+        return Path(hf_hub_download(REPO_ID, FILE_IN_REPO, repo_type="dataset"))
     except Exception as e:
         raise SystemExit(
-            f"could not download {JSONL_IN_REPO} from {REPO_ID} ({e}).\n"
+            f"could not download {FILE_IN_REPO} from {REPO_ID} ({e}).\n"
             "Check the network / HF_ENDPOINT, or download the Python split yourself "
             "and pass it with --input."
         ) from e
 
 
+def _load(path: Path) -> list[dict[str, Any]]:
+    if path.suffix == ".parquet":
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as e:
+            raise SystemExit(
+                "reading .parquet needs pyarrow: run `uv sync --extra infer` (or --extra mlx)"
+            ) from e
+        return pq.read_table(path).to_pylist()
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def read_rows(path: Path) -> list[dict[str, Any]]:
-    rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    """Read the Python split from a .parquet (as on the HF hub) or .jsonl file."""
+    path = Path(path)
+    rows = _load(path)
     for i, row in enumerate(rows):
         missing = [k for k in REQUIRED if k not in row]
         if missing:
@@ -152,14 +167,14 @@ def convert(rows: list[dict[str, Any]], out_dir: Path, with_docstring: bool = Tr
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Convert HumanEvalFix (Python) into mswe-rl-env tasks")
     p.add_argument(
-        "--input", help="local humanevalpack.jsonl (Python split); downloaded from the HF hub if omitted"
+        "--input", help="local Python split (.parquet or .jsonl); downloaded from the HF hub if omitted"
     )
     p.add_argument("--out", default="tasks/humanevalfix")
     p.add_argument("--hint", choices=["docstring", "none"], default="docstring")
     p.add_argument("--limit", type=int, default=None, help="only convert the first N problems")
     a = p.parse_args(argv)
 
-    rows = read_rows(Path(a.input) if a.input else download_jsonl())
+    rows = read_rows(Path(a.input) if a.input else download())
     if a.limit:
         rows = rows[: a.limit]
     dirs = convert(rows, Path(a.out), with_docstring=a.hint == "docstring")

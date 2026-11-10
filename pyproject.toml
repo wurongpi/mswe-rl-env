@@ -18,12 +18,14 @@ infer = [
     "torch>=2.4",
     "transformers>=4.51",
     "huggingface_hub[cli]>=0.34",
+    "pyarrow>=15",  # mswe-make-humanevalfix reads the dataset's Parquet file
 ]
 
 # Apple MLX inference (Apple Silicon only)
 mlx = [
     "mlx-lm>=0.25; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "huggingface_hub[cli]>=0.34",
+    "pyarrow>=15",  # mswe-make-humanevalfix reads the dataset's Parquet file
 ]
 
 [dependency-groups]

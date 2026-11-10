@@ -151,7 +151,7 @@ uv run mswe-verify-logprobs runs/qwen/samples.jsonl --engine hf --model Qwen/Qwe
 [HumanEvalFix](https://huggingface.co/datasets/bigcode/humanevalpack)（MIT）是 HumanEval 的修 bug 版本：164 个 Python 函数，每个带一处人工植入的 bug、正确解法和单元测试。单文件、bug 只有一两行，适合小模型。
 
 ```bash
-uv run mswe-make-humanevalfix --out tasks/humanevalfix       # 从 HF 下载并转换（也可用 --input 指定本地 jsonl）
+uv run mswe-make-humanevalfix --out tasks/humanevalfix       # 从 HF 下载并转换（也可用 --input 指定本地的 .parquet 或 .jsonl）
 uv run mswe-check-tasks tasks/humanevalfix                   # 164 题都应"原始版本失败、参考解通过"
 
 uv run mswe-rollout --tasks tasks/humanevalfix --agent mini --model mlx-community/Qwen3-1.7B-4bit \

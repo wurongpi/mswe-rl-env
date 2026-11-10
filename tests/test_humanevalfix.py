@@ -1,3 +1,5 @@
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -44,3 +46,15 @@ def test_rejects_files_with_the_wrong_schema(tmp_path):
     bad.write_text('{"task_id": "x"}\n')
     with pytest.raises(SystemExit):
         hef.read_rows(bad)
+
+
+def test_reads_parquet_via_pyarrow(tmp_path, monkeypatch):
+    # pyarrow may not be installed where the tests run; stand in for read_table().to_pylist()
+    rows = hef.read_rows(FIXTURE)
+    pq = types.ModuleType("pyarrow.parquet")
+    pq.read_table = lambda path: types.SimpleNamespace(to_pylist=lambda: rows)
+    monkeypatch.setitem(sys.modules, "pyarrow", types.ModuleType("pyarrow"))
+    monkeypatch.setitem(sys.modules, "pyarrow.parquet", pq)
+    path = tmp_path / "test-00000-of-00001.parquet"
+    path.write_bytes(b"")
+    assert [r["task_id"] for r in hef.read_rows(path)] == ["Python/0", "Python/1", "Python/12"]
