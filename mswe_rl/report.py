@@ -63,7 +63,7 @@ def build_report(
         ),
         "samples_missing_logprobs": sum(1 for s in samples if not s.get("logprobs_complete", True)),
     }
-    if bug_types:
+    if bug_types and any(bug_types.values()):
         per: dict[str, list[float]] = defaultdict(list)
         for e in valid:
             per[bug_types.get(e["task"]) or "unknown"].append(e["reward"])

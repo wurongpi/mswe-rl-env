@@ -18,15 +18,28 @@ PROXY=$!
 trap 'kill $FAKE $PROXY 2>/dev/null || true' EXIT
 for _ in $(seq 50); do curl -sf http://127.0.0.1:8100/health >/dev/null && break; sleep 0.2; done
 
-echo "== 1. mini-swe-agent rollouts (3 tasks x group 2) =="
+echo "== 1. task set sanity check, no model: untouched repo must fail, reference must pass =="
+$PY -m mswe_rl.check_tasks tasks/toy --backend "$BACKEND" --color
+
+echo
+echo "== 2. mini-swe-agent rollouts (3 tasks x group 2) =="
 $PY -m mswe_rl.rollout --agent mini --model scripted --backend "$BACKEND" \
     --group-size 2 --concurrency 3 --out "$OUT/samples.jsonl" --color
 
 echo
-echo "== 2. same task with history truncation (keep last 2 messages) =="
+echo "== 3. same task with history truncation (keep last 2 messages) =="
 $PY -m mswe_rl.rollout --agent simple --max-history 2 --only fix_fizzbuzz --model scripted \
     --backend "$BACKEND" --group-size 1 --out "$OUT/truncated.jsonl" --color
 
 echo
-echo "== 3. what the trainer sees (green = trained tokens, gray = masked) =="
+echo "== 4. recompute log-probs with a fresh forward pass and compare with the rollout =="
+cat "$OUT/samples.jsonl" "$OUT/truncated.jsonl" > "$OUT/all.jsonl"
+$PY -m mswe_rl.verify_logprobs "$OUT/all.jsonl" --engine toy --color
+
+echo
+echo "== 5. is there a reward signal? =="
+$PY -m mswe_rl.report "$OUT/samples.jsonl" --tasks tasks/toy --color
+
+echo
+echo "== 6. what the trainer sees (green = trained tokens, gray = masked) =="
 $PY -m mswe_rl.inspect_samples "$OUT/samples.jsonl" --tokenizer toy --max-chars 160 --color
